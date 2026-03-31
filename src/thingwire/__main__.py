@@ -59,14 +59,29 @@ async def setup(config: GatewayConfig) -> None:
     # Initialize safety layer
     safety = SafetyLayer(config.safety_config_path)
 
+    # Load device roster (persisted TDs from previous runs)
+    from thingwire.device_roster import DeviceRoster
+
+    roster = DeviceRoster(config.device_roster_path)
+    saved_devices = roster.load()
+
     # Connect to MQTT
     _bridge = MqttBridge(config)
     logger.info("Connecting to MQTT broker at %s:%d...", config.mqtt_broker, config.mqtt_port)
     await _bridge.connect()
 
-    # Wait for device discovery
+    # Pre-populate bridge with saved devices
+    if saved_devices:
+        for device_id, td_dict in saved_devices.items():
+            _bridge._devices[device_id] = td_dict
+        logger.info("Restored %d device(s) from roster", len(saved_devices))
+
+    # Wait for device discovery (may find new ones or refresh existing)
     logger.info("Waiting for device discovery (%.0fs timeout)...", config.device_discovery_timeout)
     devices = await _bridge.wait_for_devices(timeout=config.device_discovery_timeout)
+
+    # Save updated roster
+    roster.save(_bridge._devices)
 
     if not devices:
         logger.warning("No devices discovered. MCP server will start with meta-tools only.")
@@ -94,6 +109,27 @@ async def setup(config: GatewayConfig) -> None:
 
                 count = publish_ha_discovery(_bridge._client, td, device_id)
                 logger.info("Published %d HA discovery messages for %s", count, device_id)
+
+    # Dynamic registration for devices that connect after boot
+    def _on_new_device(device_id: str, raw_td: dict) -> None:  # type: ignore[type-arg]
+        td = _bridge.get_td(device_id)
+        if not td:
+            return
+        safety.register_device(device_id, raw_td)
+        try:
+            tools = register_device_tools(mcp, td, _bridge, safety, _audit)
+            logger.info("Dynamically registered %d tools for %s", len(tools), device_id)
+        except Exception:
+            logger.exception("Failed to dynamically register %s", device_id)
+
+        if ha_enabled and _bridge._client:
+            from thingwire.ha_discovery import publish_ha_discovery
+
+            publish_ha_discovery(_bridge._client, td, device_id)
+
+        roster.add_device(device_id, raw_td)
+
+    _bridge.on_device_discovered = _on_new_device
 
     # Register meta-tools
     register_meta_tools(mcp, _bridge, _audit)

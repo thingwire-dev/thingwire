@@ -16,6 +16,7 @@ class GatewayConfig(BaseSettings):
     device_topic_prefix: str = "thingwire"
     audit_db_path: str = "data/audit.db"
     safety_config_path: str = "safety_config.yaml"
+    device_roster_path: str = "data/devices.json"
     log_level: str = "INFO"
     log_format: str = "text"  # "text" or "json"
     device_discovery_timeout: float = 30.0
