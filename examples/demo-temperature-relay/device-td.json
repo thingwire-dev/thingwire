@@ -1,0 +1,49 @@
+{
+  "@context": "https://www.w3.org/2019/wot/td/v1.1",
+  "@type": "Thing",
+  "id": "urn:thingwire:device:thingwire-demo-001",
+  "title": "ThingWire Demo Device",
+  "description": "ESP32-S3 with temperature, humidity, motion sensors and relay actuator",
+  "securityDefinitions": {
+    "nosec_sc": { "scheme": "nosec" }
+  },
+  "security": ["nosec_sc"],
+  "properties": {
+    "temperature": {
+      "type": "number",
+      "unit": "celsius",
+      "readOnly": true,
+      "description": "Current temperature reading from DHT22 sensor",
+      "forms": [{ "href": "mqtt://localhost/thingwire/thingwire-demo-001/telemetry", "op": "observeproperty" }]
+    },
+    "humidity": {
+      "type": "number",
+      "unit": "percent",
+      "readOnly": true,
+      "description": "Current humidity reading from DHT22 sensor",
+      "forms": [{ "href": "mqtt://localhost/thingwire/thingwire-demo-001/telemetry", "op": "observeproperty" }]
+    },
+    "motion": {
+      "type": "boolean",
+      "readOnly": true,
+      "description": "PIR motion sensor — true when motion detected",
+      "forms": [{ "href": "mqtt://localhost/thingwire/thingwire-demo-001/telemetry", "op": "observeproperty" }]
+    }
+  },
+  "actions": {
+    "setRelay": {
+      "title": "Control relay",
+      "description": "Turn relay on or off. Controls a physical device connected to the relay.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "state": { "type": "boolean", "description": "true = on, false = off" }
+        },
+        "required": ["state"]
+      },
+      "safe": false,
+      "idempotent": true,
+      "forms": [{ "href": "mqtt://localhost/thingwire/thingwire-demo-001/command", "op": "invokeaction" }]
+    }
+  }
+}
