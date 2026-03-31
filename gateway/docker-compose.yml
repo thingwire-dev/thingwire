@@ -1,0 +1,25 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto-data:/mosquitto/data
+    restart: unless-stopped
+
+  gateway:
+    build: .
+    depends_on:
+      - mosquitto
+    environment:
+      THINGWIRE_MQTT_BROKER: mosquitto
+      THINGWIRE_MQTT_PORT: "1883"
+      THINGWIRE_LOG_LEVEL: INFO
+    volumes:
+      - gateway-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  mosquitto-data:
+  gateway-data:

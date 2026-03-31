@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build
+build/
+dist/
+*.egg-info/
+.pio/
+
+# Data
+data/*.db
+
+# Config
+.env
+.env.*
+
+# Internal only
+docs-local/
+repo-ref/
+phases/
+CLAUDE.md
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
