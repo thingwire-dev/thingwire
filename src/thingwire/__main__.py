@@ -74,6 +74,9 @@ async def setup(config: GatewayConfig) -> None:
     # Create MCP server
     mcp = create_mcp_server()
 
+    # Home Assistant MQTT discovery
+    ha_enabled = os.environ.get("THINGWIRE_HA_DISCOVERY") == "1"
+
     # Register device tools
     for device_id in devices:
         td = _bridge.get_td(device_id)
@@ -85,6 +88,12 @@ async def setup(config: GatewayConfig) -> None:
                 logger.info("Registered %d tools for device %s", len(tools), device_id)
             except Exception:
                 logger.exception("Failed to register tools for device %s, skipping", device_id)
+
+            if ha_enabled and _bridge._client:
+                from thingwire.ha_discovery import publish_ha_discovery
+
+                count = publish_ha_discovery(_bridge._client, td, device_id)
+                logger.info("Published %d HA discovery messages for %s", count, device_id)
 
     # Register meta-tools
     register_meta_tools(mcp, _bridge, _audit)

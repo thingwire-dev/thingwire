@@ -1,0 +1,25 @@
+# ThingWire Device Configuration
+# Edit this file, then run: thingwire firmware-config device.yaml
+# This generates firmware/src/config.h
+
+device_id: thingwire-demo-001
+
+# WiFi credentials (or use captive portal on first boot)
+wifi:
+  ssid: ""
+  password: ""
+
+# MQTT broker
+mqtt:
+  broker: "192.168.1.100"
+  port: 1883
+
+# Telemetry interval in milliseconds
+telemetry_interval_ms: 5000
+
+# Pin mappings
+pins:
+  dht: 4           # DHT22 data pin
+  pir: 5           # PIR motion sensor
+  relay: 12        # Relay control
+  led: 13          # Status LED
