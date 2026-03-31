@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.thingwire-dev/thingwire",
+  "title": "ThingWire",
+  "description": "AI-to-hardware gateway. Compiles W3C WoT Thing Descriptions into MCP tools so AI agents can safely read sensors and control actuators over MQTT.",
+  "version": "0.3.1",
+  "repository": {
+    "url": "https://github.com/thingwire-dev/thingwire",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/thingwire-dev/thingwire",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "thingwire",
+      "version": "0.3.1",
+      "transport": "stdio"
+    },
+    {
+      "registryType": "pip",
+      "identifier": "thingwire",
+      "version": "0.3.0",
+      "transport": "stdio"
+    }
+  ],
+  "environmentVariables": [
+    {
+      "name": "THINGWIRE_MQTT_BROKER",
+      "description": "MQTT broker hostname (default: localhost)",
+      "required": false
+    },
+    {
+      "name": "THINGWIRE_MQTT_PORT",
+      "description": "MQTT broker port (default: 1883)",
+      "required": false
+    }
+  ]
+}
