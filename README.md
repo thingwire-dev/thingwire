@@ -1,6 +1,6 @@
 # ThingWire
 
-**Give AI agents hands.** Control real hardware through natural language.
+**WoT Thing Description → MCP tools. Point AI agents at real hardware.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
@@ -9,13 +9,11 @@
 [![W3C WoT TD](https://img.shields.io/badge/Standard-W3C%20WoT%20TD-005A9C.svg?logo=w3c&logoColor=white)](https://www.w3.org/TR/wot-thing-description11/)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-8B5CF6.svg)](https://modelcontextprotocol.io/)
 
-<!-- demo gif here -->
+## What it does
 
-## Why ThingWire
+Your ESP32 publishes a [W3C WoT Thing Description](https://www.w3.org/TR/wot-thing-description11/) over MQTT. ThingWire reads it and auto-generates MCP tools. Claude (or any MCP client) can then call `read_temperature`, `set_relay`, etc. with no hand-written tool definitions.
 
-AI agents are great at reasoning. They're terrible at interacting with the physical world. ThingWire bridges that gap. Your ESP32 publishes a W3C WoT Thing Description over MQTT, the gateway reads it, and auto-generates MCP tools. Now Claude can read your temperature sensor and flip your relay, with a real safety layer between "AI said so" and "the relay clicked."
-
-No custom integrations. No hand-written tool definitions. Plug in a new device, and the AI agent discovers it automatically.
+A safety layer sits between the AI and the hardware: per-device action allowlists, rate limits, dangerous-action confirmation, and a full audit log.
 
 ## How It Works
 
@@ -40,46 +38,45 @@ No custom integrations. No hand-written tool definitions. Plug in a new device, 
 └─────────────────────┘
 ```
 
-1. ESP32 boots and publishes its capabilities as a [WoT Thing Description](https://www.w3.org/TR/wot-thing-description11/) to MQTT
+1. ESP32 boots and publishes its capabilities as a WoT Thing Description to MQTT
 2. Gateway subscribes, parses the TD, and compiles it into typed MCP tools
 3. AI agent calls tools like `read_temperature` or `set_relay`
-4. Safety layer checks permissions, rate limits, and flags dangerous actions
-5. Command goes to the device over MQTT. Response comes back the same way.
+4. Safety layer checks permissions and rate limits before passing the command on
+5. Command goes to the device over MQTT; response comes back the same way
 
 ## Quickstart
 
-You don't need hardware. The virtual device simulator gets you running in under 5 minutes.
+You do not need hardware. The virtual device simulator gets you running without any physical devices.
 
-### Option A: pip install
+### From source
 
 ```bash
-pip install thingwire
+git clone https://github.com/thingwire-dev/thingwire
+cd thingwire
 
-# Initialize project files
-thingwire init
+# Install
+pip install -e ".[dev]"
 
 # Start MQTT broker
 docker compose up -d
 
 # Start virtual device (simulates ESP32 with sensors + relay)
-python -m thingwire.virtual_device  # OR: python scripts/virtual_device.py
+python scripts/virtual_device.py --broker localhost
 
 # Start gateway (new terminal)
 thingwire serve
 ```
 
-### Option B: From source
+### PyPI (coming soon)
 
 ```bash
-git clone https://github.com/thingwire-dev/thingwire
-cd thingwire
-pip install -e ".[dev]"
+pip install thingwire
 thingwire serve
 ```
 
 ### Connect your MCP client
 
-Add this to your `claude_desktop_config.json` (or equivalent for Cursor):
+Add to `claude_desktop_config.json`:
 
 ```json
 {
@@ -95,30 +92,26 @@ Add this to your `claude_desktop_config.json` (or equivalent for Cursor):
 }
 ```
 
-Done. Open Claude Desktop and start talking to your hardware.
+## Example queries
 
-## What You Can Ask Claude
+Once connected, you can ask things like:
 
-Once connected, try these:
+- "What devices are online right now?"
+- "What's the temperature and humidity?"
+- "Turn on the relay."
+- "Is there motion in the room?"
+- "Show me the last 10 commands in the audit log."
 
-- *"What devices are online right now?"*
-- *"What's the temperature and humidity?"*
-- *"Turn on the relay."*
-- *"Is there motion in the room?"*
-- *"Turn on the relay when temperature goes above 30C."*
-- *"Show me the last 10 commands in the audit log."*
-- *"What actions are allowed on this device?"*
+The agent sees real MCP tools generated from the device's own Thing Description, including sensor units and safety constraints.
 
-The AI agent sees real MCP tools generated from the device's own Thing Description. It knows what the device can do, what units the sensors report in, and what safety constraints exist.
-
-## Architecture
+## Repository layout
 
 ```
 thingwire/
-├── src/thingwire/            Python gateway (pip install thingwire)
-│   ├── cli.py                    CLI: thingwire serve / init / devices
+├── src/thingwire/            Python gateway
+│   ├── cli.py                    CLI entry point
 │   ├── td_loader.py              Parse WoT Thing Descriptions
-│   ├── tool_compiler.py          WoT TD → MCP tools (core differentiator)
+│   ├── tool_compiler.py          WoT TD → MCP tools
 │   ├── mcp_server.py             MCP server wiring
 │   ├── mqtt_bridge.py            MQTT device discovery + commands
 │   ├── safety.py                 Permissions, rate limits, deadman switch
@@ -130,25 +123,25 @@ thingwire/
 │       └── wot_td_generator.cpp
 ├── td-library/               Pre-built Thing Descriptions for common hardware
 ├── scripts/
-│   └── virtual_device.py    Device simulator (no hardware needed)
+│   └── virtual_device.py     Device simulator (no hardware needed)
 └── examples/                 Demo scenarios
 ```
 
 ## Safety
 
-This is not a toy. AI agents controlling physical hardware need guardrails. Every actuator command passes through the safety layer before reaching any device.
+Every actuator command passes through the safety layer before reaching any device.
 
-- **Per-device allowlists** configure exactly which actions each device permits
+- **Per-device allowlists** define exactly which actions each device permits
 - **Rate limiting** with sliding windows prevents runaway commands
 - **Dangerous action confirmation** for actions marked `safe: false` in the WoT TD
 - **Deadman switch** disables actuators if the device heartbeat stops
 - **SQLite audit log** records every command with timestamp, parameters, and result
 
-The safety config lives in `safety_config.yaml`. You define what's allowed. The AI agent can only operate within those boundaries.
+The safety config lives in `safety_config.yaml`. The AI agent can only operate within the boundaries you define there.
 
 ## Hardware
 
-**For real hardware (MVP):**
+**Tested with:**
 
 | Component | Purpose |
 |-----------|---------|
@@ -157,11 +150,7 @@ The safety config lives in `safety_config.yaml`. You define what's allowed. The 
 | PIR sensor | Motion detection |
 | 5V relay module | Actuator output |
 
-**No hardware?** The virtual device simulator generates realistic sensor data and responds to actuator commands. Everything works the same from the AI agent's perspective.
-
-```bash
-python3.11 scripts/virtual_device.py --broker localhost
-```
+Any ESP32-S3 board works. Flash the firmware with PlatformIO, configure `firmware/src/config.h`, and it will start publishing its Thing Description on boot.
 
 ## MQTT Topics
 
@@ -174,7 +163,7 @@ thingwire/{device_id}/status      # Online/offline (LWT)
 
 ## Configuration
 
-All settings via environment variables, prefixed with `THINGWIRE_`:
+All settings via environment variables prefixed with `THINGWIRE_`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -183,25 +172,22 @@ All settings via environment variables, prefixed with `THINGWIRE_`:
 | `THINGWIRE_DEVICE_TOPIC_PREFIX` | `thingwire` | MQTT topic prefix for device discovery |
 | `THINGWIRE_AUDIT_DB_PATH` | `data/audit.db` | Path to SQLite audit log |
 | `THINGWIRE_SAFETY_CONFIG_PATH` | `safety_config.yaml` | Path to safety rules |
-| `THINGWIRE_LOG_LEVEL` | `INFO` | Log level (DEBUG, INFO, WARNING, ERROR) |
+| `THINGWIRE_LOG_LEVEL` | `INFO` | Log level |
 
 ## Development
 
 ```bash
-cd gateway
-
-# Install dependencies
-python3.11 -m pip install -r requirements.txt
-python3.11 -m pip install -e ".[dev]"
+# Install with dev dependencies
+pip install -e ".[dev]"
 
 # Run tests
-python3.11 -m pytest tests/ -v
+pytest tests/ -v
 
 # Lint
-python3.11 -m ruff check gateway/
+ruff check src/
 
 # Type check
-python3.11 -m mypy gateway/ --strict
+mypy src/thingwire/ --strict
 ```
 
 ## Roadmap

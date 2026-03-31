@@ -3,7 +3,7 @@
 import json
 
 from thingwire.td_loader import parse_thing_description
-from thingwire.tool_compiler import CompiledTool, compile_tools
+from thingwire.tool_compiler import CompiledTool, compile_tools, export_openai_tools, tool_to_openai
 
 
 def test_compile_produces_four_tools(sample_td_json: str) -> None:
@@ -86,3 +86,50 @@ def test_empty_td_produces_no_tools() -> None:
     td = parse(td_json)
     tools = compile_tools(td)
     assert tools == []
+
+
+def test_openai_format_structure(sample_td_json: str) -> None:
+    """OpenAI export should produce valid function calling format."""
+    td = parse_thing_description(sample_td_json)
+    openai_tools = export_openai_tools(td)
+
+    assert len(openai_tools) == 4
+    for tool in openai_tools:
+        assert tool["type"] == "function"
+        assert "function" in tool
+        assert "name" in tool["function"]
+        assert "description" in tool["function"]
+        assert "parameters" in tool["function"]
+        assert tool["function"]["parameters"]["type"] == "object"
+
+
+def test_openai_action_has_params(sample_td_json: str) -> None:
+    """OpenAI do_set_relay should have state param with correct type."""
+    td = parse_thing_description(sample_td_json)
+    openai_tools = export_openai_tools(td)
+    relay = next(t for t in openai_tools if t["function"]["name"] == "do_set_relay")
+
+    params = relay["function"]["parameters"]
+    assert "state" in params["properties"]
+    assert params["properties"]["state"]["type"] == "boolean"
+    assert params["required"] == ["state"]
+
+
+def test_openai_read_tool_empty_params(sample_td_json: str) -> None:
+    """OpenAI read tools should have empty properties and no required."""
+    td = parse_thing_description(sample_td_json)
+    openai_tools = export_openai_tools(td)
+    temp = next(t for t in openai_tools if t["function"]["name"] == "read_temperature")
+
+    params = temp["function"]["parameters"]
+    assert params["properties"] == {}
+    assert "required" not in params
+
+
+def test_openai_with_device_prefix(sample_td_json: str) -> None:
+    """OpenAI export respects device_prefix."""
+    td = parse_thing_description(sample_td_json)
+    openai_tools = export_openai_tools(td, device_prefix="kitchen")
+    names = [t["function"]["name"] for t in openai_tools]
+    assert "kitchen_read_temperature" in names
+    assert "kitchen_do_set_relay" in names

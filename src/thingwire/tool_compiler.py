@@ -7,7 +7,7 @@ that the MCP server can register with AI agents.
 
 import logging
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -150,3 +150,49 @@ def compile_tools(td: ThingDescription, device_prefix: str | None = None) -> lis
     )
 
     return tools
+
+
+# --- OpenAI function calling format ---
+
+_OPENAI_TYPE_MAP: dict[str, str] = {
+    "boolean": "boolean",
+    "number": "number",
+    "integer": "integer",
+    "string": "string",
+}
+
+
+def tool_to_openai(tool: CompiledTool) -> dict[str, Any]:
+    """Convert a CompiledTool to OpenAI function calling format."""
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+
+    for param in tool.parameters:
+        properties[param.name] = {
+            "type": _OPENAI_TYPE_MAP.get(param.type, "string"),
+        }
+        if param.description:
+            properties[param.name]["description"] = param.description
+        if param.required:
+            required.append(param.name)
+
+    parameters: dict[str, Any] = {"type": "object", "properties": properties}
+    if required:
+        parameters["required"] = required
+
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": parameters,
+        },
+    }
+
+
+def export_openai_tools(
+    td: ThingDescription, device_prefix: str | None = None
+) -> list[dict[str, Any]]:
+    """Compile a WoT TD directly to OpenAI function calling format."""
+    tools = compile_tools(td, device_prefix=device_prefix)
+    return [tool_to_openai(t) for t in tools]
