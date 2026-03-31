@@ -2,8 +2,8 @@
 
 import json
 
-from gateway.td_loader import parse_thing_description
-from gateway.tool_compiler import CompiledTool, compile_tools
+from thingwire.td_loader import parse_thing_description
+from thingwire.tool_compiler import CompiledTool, compile_tools
 
 
 def test_compile_produces_four_tools(sample_td_json: str) -> None:
@@ -79,7 +79,7 @@ def test_empty_td_produces_no_tools() -> None:
         "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
         "security": ["nosec_sc"],
     })
-    from gateway.td_loader import parse_thing_description as parse
+    from thingwire.td_loader import parse_thing_description as parse
 
     td = parse(td_json)
     tools = compile_tools(td)

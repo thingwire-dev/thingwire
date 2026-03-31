@@ -10,12 +10,12 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from gateway.audit_log import AuditLog
-from gateway.config import GatewayConfig
-from gateway.mqtt_bridge import MqttBridge
-from gateway.safety import SafetyError, SafetyLayer
-from gateway.td_loader import ThingDescription
-from gateway.tool_compiler import CompiledTool, ToolParameter, compile_tools
+from thingwire.audit_log import AuditLog
+from thingwire.config import GatewayConfig
+from thingwire.mqtt_bridge import MqttBridge
+from thingwire.safety import SafetyError, SafetyLayer
+from thingwire.td_loader import ThingDescription
+from thingwire.tool_compiler import CompiledTool, ToolParameter, compile_tools
 
 # Map TD types to Python annotation types
 _TYPE_MAP: dict[str, type] = {
@@ -37,6 +37,12 @@ def _register_read_tool(
     """Register a read tool (sensor reading) on the MCP server."""
 
     async def read_handler() -> dict[str, Any]:
+        if not bridge.is_device_online(tool.device_id):
+            return {
+                "error": "DEVICE_OFFLINE",
+                "message": f"Device '{tool.device_id}' is offline. Cannot read {tool.source_name}.",
+                "device_id": tool.device_id,
+            }
         result = bridge.get_latest_reading(tool.device_id, tool.source_name)
         await audit.record(
             device_id=tool.device_id,
@@ -46,11 +52,7 @@ def _register_read_tool(
         )
         return result
 
-    # FastMCP uses the function name and docstring for tool metadata
-    read_handler.__name__ = tool.name
-    read_handler.__doc__ = tool.description
-
-    mcp.tool()(read_handler)
+    mcp.tool(name=tool.name, description=tool.description)(read_handler)
 
 
 def _build_action_signature(params: list[ToolParameter]) -> inspect.Signature:
@@ -83,6 +85,11 @@ def _register_action_tool(
     # Build the inner handler that captures tool/bridge/safety/audit
     async def _execute(params: dict[str, Any]) -> dict[str, Any]:
         try:
+            # Sync heartbeat from telemetry before deadman check
+            safety.update_heartbeat_from_telemetry(
+                tool.device_id,
+                bridge.get_last_telemetry_time(tool.device_id),
+            )
             safety.check_permission(tool.device_id, tool.name)
             safety.check_rate_limit(tool.device_id, tool.name)
             safety.check_deadman_switch(tool.device_id)
@@ -105,12 +112,26 @@ def _register_action_tool(
         target = tool.source_name.replace("set", "").lower() + "1"
         value = params.get("state", params)
 
-        action_id = await bridge.send_command(
-            device_id=tool.device_id,
-            target=target,
-            command="set",
-            value=value,
-        )
+        try:
+            action_id = await bridge.send_command(
+                device_id=tool.device_id,
+                target=target,
+                command="set",
+                value=value,
+            )
+        except RuntimeError as e:
+            error_result = {
+                "error": "COMMAND_FAILED",
+                "message": str(e),
+                "device_id": tool.device_id,
+            }
+            await audit.record(
+                device_id=tool.device_id,
+                action=tool.name,
+                params=params,
+                result=error_result,
+            )
+            return error_result
 
         result = {
             "status": "command_sent",
@@ -149,10 +170,7 @@ def _register_action_tool(
         async def action_handler() -> dict[str, Any]:  # type: ignore[misc]
             return await _execute({})
 
-    action_handler.__name__ = tool.name
-    action_handler.__doc__ = tool.description
-
-    mcp.tool()(action_handler)
+    mcp.tool(name=tool.name, description=tool.description)(action_handler)
 
 
 def register_device_tools(
@@ -161,12 +179,13 @@ def register_device_tools(
     bridge: MqttBridge,
     safety: SafetyLayer,
     audit: AuditLog,
+    device_prefix: str | None = None,
 ) -> list[str]:
     """Compile TD into tools and register them on the MCP server.
 
     Returns list of registered tool names.
     """
-    tools = compile_tools(td)
+    tools = compile_tools(td, device_prefix=device_prefix)
     registered: list[str] = []
 
     for tool in tools:

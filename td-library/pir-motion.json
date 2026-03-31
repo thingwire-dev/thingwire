@@ -1,0 +1,18 @@
+{
+  "@context": "https://www.w3.org/2019/wot/td/v1.1",
+  "@type": "Thing",
+  "id": "urn:thingwire:device:{device_id}",
+  "title": "PIR Motion Sensor",
+  "description": "Passive infrared motion detector",
+  "securityDefinitions": { "nosec_sc": { "scheme": "nosec" } },
+  "security": ["nosec_sc"],
+  "properties": {
+    "motion": {
+      "type": "boolean",
+      "readOnly": true,
+      "description": "True when motion is detected within sensor range",
+      "forms": [{ "href": "mqtt://{broker}/thingwire/{device_id}/telemetry", "op": "observeproperty" }]
+    }
+  },
+  "actions": {}
+}

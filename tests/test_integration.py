@@ -8,12 +8,12 @@ import json
 
 import pytest
 
-from gateway.audit_log import AuditLog
-from gateway.config import GatewayConfig
-from gateway.mcp_server import create_mcp_server, register_device_tools, register_meta_tools
-from gateway.mqtt_bridge import MqttBridge
-from gateway.safety import SafetyError, SafetyLayer
-from gateway.td_loader import parse_thing_description
+from thingwire.audit_log import AuditLog
+from thingwire.config import GatewayConfig
+from thingwire.mcp_server import create_mcp_server, register_device_tools, register_meta_tools
+from thingwire.mqtt_bridge import MqttBridge
+from thingwire.safety import SafetyError, SafetyLayer
+from thingwire.td_loader import parse_thing_description
 
 SPEC_TD = {
     "@context": "https://www.w3.org/2019/wot/td/v1.1",
@@ -183,7 +183,7 @@ class TestToolPipeline:
 
     def test_full_pipeline_produces_correct_tools(self, bridge: MqttBridge) -> None:
         """TD from bridge → parse → compile → 4 tools with correct names."""
-        from gateway.tool_compiler import compile_tools
+        from thingwire.tool_compiler import compile_tools
 
         td = bridge.get_td("thingwire-demo-001")
         assert td is not None
@@ -194,7 +194,7 @@ class TestToolPipeline:
 
     def test_dangerous_action_flagged(self, bridge: MqttBridge) -> None:
         """setRelay (safe=false) compiles with danger flag."""
-        from gateway.tool_compiler import compile_tools
+        from thingwire.tool_compiler import compile_tools
 
         td = bridge.get_td("thingwire-demo-001")
         assert td is not None

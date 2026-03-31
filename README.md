@@ -50,25 +50,34 @@ No custom integrations. No hand-written tool definitions. Plug in a new device, 
 
 You don't need hardware. The virtual device simulator gets you running in under 5 minutes.
 
+### Option A: pip install
+
 ```bash
-# 1. Clone the repo
-git clone https://github.com/thegdsks/thingwire
-cd thingwire
+pip install thingwire
 
-# 2. Start the MQTT broker
-cd gateway
-docker-compose up mosquitto -d
+# Initialize project files
+thingwire init
 
-# 3. Start the virtual device (simulates an ESP32 with sensors + relay)
-cd ..
-python3.11 scripts/virtual_device.py
+# Start MQTT broker
+docker compose up -d
 
-# 4. Start the gateway (new terminal)
-cd gateway
-python3.11 -m gateway
+# Start virtual device (simulates ESP32 with sensors + relay)
+python -m thingwire.virtual_device  # OR: python scripts/virtual_device.py
 
-# 5. Connect your MCP client
+# Start gateway (new terminal)
+thingwire serve
 ```
+
+### Option B: From source
+
+```bash
+git clone https://github.com/thingwire-dev/thingwire
+cd thingwire
+pip install -e ".[dev]"
+thingwire serve
+```
+
+### Connect your MCP client
 
 Add this to your `claude_desktop_config.json` (or equivalent for Cursor):
 
@@ -76,9 +85,8 @@ Add this to your `claude_desktop_config.json` (or equivalent for Cursor):
 {
   "mcpServers": {
     "thingwire": {
-      "command": "python3.11",
-      "args": ["-m", "gateway"],
-      "cwd": "/path/to/thingwire/gateway",
+      "command": "thingwire",
+      "args": ["serve"],
       "env": {
         "THINGWIRE_MQTT_BROKER": "localhost"
       }
@@ -107,22 +115,20 @@ The AI agent sees real MCP tools generated from the device's own Thing Descripti
 
 ```
 thingwire/
+├── src/thingwire/            Python gateway (pip install thingwire)
+│   ├── cli.py                    CLI: thingwire serve / init / devices
+│   ├── td_loader.py              Parse WoT Thing Descriptions
+│   ├── tool_compiler.py          WoT TD → MCP tools (core differentiator)
+│   ├── mcp_server.py             MCP server wiring
+│   ├── mqtt_bridge.py            MQTT device discovery + commands
+│   ├── safety.py                 Permissions, rate limits, deadman switch
+│   └── audit_log.py              SQLite audit trail
 ├── firmware/                 ESP32-S3 firmware (PlatformIO/Arduino)
 │   └── src/
-│       ├── main.cpp              Entry point, task orchestration
-│       ├── wifi_manager.cpp      WiFi connection handling
-│       ├── mqtt_client.cpp       MQTT publish/subscribe
-│       ├── sensor_registry.cpp   Sensor abstraction layer
-│       ├── actuator_controller.cpp  Relay and actuator control
-│       └── wot_td_generator.cpp  Builds WoT Thing Description
-├── gateway/                  Python gateway (FastMCP + paho-mqtt + Pydantic v2)
-│   └── gateway/
-│       ├── __main__.py           Entry point
-│       ├── config.py             Env var configuration
-│       ├── td_loader.py          Parse WoT Thing Descriptions
-│       ├── mcp_server.py         MCP server wiring
-│       ├── safety.py             Permissions, rate limits, confirmation
-│       └── audit_log.py          SQLite audit trail
+│       ├── main.cpp, wifi_manager.cpp, mqtt_client.cpp
+│       ├── sensor_registry.cpp, actuator_controller.cpp
+│       └── wot_td_generator.cpp
+├── td-library/               Pre-built Thing Descriptions for common hardware
 ├── scripts/
 │   └── virtual_device.py    Device simulator (no hardware needed)
 └── examples/                 Demo scenarios

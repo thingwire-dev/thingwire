@@ -1,0 +1,42 @@
+{
+  "@context": "https://www.w3.org/2019/wot/td/v1.1",
+  "@type": "Thing",
+  "id": "urn:thingwire:device:{device_id}",
+  "title": "RGB LED Strip",
+  "description": "WS2812B addressable LED strip controller",
+  "securityDefinitions": { "nosec_sc": { "scheme": "nosec" } },
+  "security": ["nosec_sc"],
+  "properties": {},
+  "actions": {
+    "setColor": {
+      "title": "Set LED color",
+      "description": "Set the RGB color of the LED strip",
+      "input": {
+        "type": "object",
+        "properties": {
+          "red": { "type": "integer", "description": "Red channel 0-255" },
+          "green": { "type": "integer", "description": "Green channel 0-255" },
+          "blue": { "type": "integer", "description": "Blue channel 0-255" }
+        },
+        "required": ["red", "green", "blue"]
+      },
+      "safe": true,
+      "idempotent": true,
+      "forms": [{ "href": "mqtt://{broker}/thingwire/{device_id}/command", "op": "invokeaction" }]
+    },
+    "setBrightness": {
+      "title": "Set brightness",
+      "description": "Set overall brightness of the LED strip",
+      "input": {
+        "type": "object",
+        "properties": {
+          "level": { "type": "integer", "description": "Brightness 0-255" }
+        },
+        "required": ["level"]
+      },
+      "safe": true,
+      "idempotent": true,
+      "forms": [{ "href": "mqtt://{broker}/thingwire/{device_id}/command", "op": "invokeaction" }]
+    }
+  }
+}

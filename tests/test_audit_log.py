@@ -2,7 +2,7 @@
 
 import pytest
 
-from gateway.audit_log import AuditLog
+from thingwire.audit_log import AuditLog
 
 
 @pytest.fixture

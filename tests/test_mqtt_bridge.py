@@ -3,8 +3,8 @@
 import json
 from unittest.mock import MagicMock
 
-from gateway.config import GatewayConfig
-from gateway.mqtt_bridge import MqttBridge
+from thingwire.config import GatewayConfig
+from thingwire.mqtt_bridge import MqttBridge
 
 SAMPLE_TD = {
     "@context": "https://www.w3.org/2019/wot/td/v1.1",

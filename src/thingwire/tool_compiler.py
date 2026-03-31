@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from gateway.td_loader import ThingAction, ThingDescription, ThingProperty
+from thingwire.td_loader import ThingAction, ThingDescription, ThingProperty
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,7 @@ def _compile_property(
     device_id: str,
     prop_name: str,
     prop: ThingProperty,
+    prefix: str = "",
 ) -> CompiledTool:
     """Compile a WoT TD property into a read tool."""
     slug = _slugify(prop_name)
@@ -72,7 +73,7 @@ def _compile_property(
     description = f"Read {prop.description}. {returns}"
 
     return CompiledTool(
-        name=f"read_{slug}",
+        name=f"{prefix}read_{slug}",
         source_name=prop_name,
         device_id=device_id,
         description=description,
@@ -87,6 +88,7 @@ def _compile_action(
     device_id: str,
     action_name: str,
     action: ThingAction,
+    prefix: str = "",
 ) -> CompiledTool:
     """Compile a WoT TD action into a do tool."""
     slug = _slugify(action_name)
@@ -110,7 +112,7 @@ def _compile_action(
             )
 
     return CompiledTool(
-        name=f"do_{slug}",
+        name=f"{prefix}do_{slug}",
         source_name=action_name,
         device_id=device_id,
         description=description,
@@ -121,22 +123,26 @@ def _compile_action(
     )
 
 
-def compile_tools(td: ThingDescription) -> list[CompiledTool]:
+def compile_tools(
+    td: ThingDescription, device_prefix: str | None = None
+) -> list[CompiledTool]:
     """Compile a WoT Thing Description into MCP tool definitions.
 
     Each TD property becomes a read_* tool, each action becomes a do_* tool.
     Dangerous actions (safe=False) get a warning prefix in their description.
+    If device_prefix is set, tool names are namespaced (e.g. kitchen_read_temperature).
     """
     device_id = td.id
+    prefix = f"{_slugify(device_prefix)}_" if device_prefix else ""
     tools: list[CompiledTool] = []
 
     for prop_name, prop in td.properties.items():
-        tool = _compile_property(device_id, prop_name, prop)
+        tool = _compile_property(device_id, prop_name, prop, prefix)
         tools.append(tool)
         logger.debug("Compiled property '%s' → tool '%s'", prop_name, tool.name)
 
     for action_name, action in td.actions.items():
-        tool = _compile_action(device_id, action_name, action)
+        tool = _compile_action(device_id, action_name, action, prefix)
         tools.append(tool)
         logger.debug("Compiled action '%s' → tool '%s'", action_name, tool.name)
 

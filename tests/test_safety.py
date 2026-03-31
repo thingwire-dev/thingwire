@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from gateway.safety import SafetyError, SafetyLayer
+from thingwire.safety import SafetyError, SafetyLayer
 
 
 @pytest.fixture

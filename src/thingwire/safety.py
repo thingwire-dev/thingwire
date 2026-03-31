@@ -178,8 +178,20 @@ class SafetyLayer:
         return msg
 
     def record_heartbeat(self, device_id: str) -> None:
-        """Record a heartbeat from a device."""
+        """Record a heartbeat from a device (manual call)."""
         self._last_heartbeat[device_id] = time.monotonic()
+
+    def update_heartbeat_from_telemetry(
+        self, device_id: str, telemetry_time: float | None
+    ) -> None:
+        """Update heartbeat using the bridge's telemetry timestamp.
+
+        Called by the MCP server before safety checks to keep the deadman
+        switch in sync with actual device telemetry, not just explicit
+        heartbeat calls.
+        """
+        if telemetry_time is not None:
+            self._last_heartbeat[device_id] = telemetry_time
 
     def check_deadman_switch(self, device_id: str) -> None:
         """Check if device is still alive. Raises SafetyError if heartbeat lost."""
@@ -196,3 +208,18 @@ class SafetyLayer:
                 f"Device '{device_id}' has not sent a heartbeat in {elapsed:.0f}s "
                 f"(timeout: {timeout}s). Actuator commands are disabled for safety.",
             )
+
+    def prune_rate_limiters(self) -> int:
+        """Remove expired rate limit windows to prevent memory leak. Returns pruned count."""
+        pruned = 0
+        now = time.monotonic()
+        for device_id in list(self._rate_limiters):
+            for action in list(self._rate_limiters[device_id]):
+                limiter = self._rate_limiters[device_id][action]
+                limiter.timestamps = [t for t in limiter.timestamps if now - t < limiter.window_seconds]
+                if not limiter.timestamps:
+                    del self._rate_limiters[device_id][action]
+                    pruned += 1
+            if not self._rate_limiters[device_id]:
+                del self._rate_limiters[device_id]
+        return pruned
