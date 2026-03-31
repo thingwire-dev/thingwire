@@ -1,0 +1,33 @@
+{
+  "@context": "https://www.w3.org/2019/wot/td/v1.1",
+  "@type": "Thing",
+  "id": "urn:thingwire:device:{device_id}",
+  "title": "BME280 Environmental Sensor",
+  "description": "Temperature, barometric pressure, and humidity sensor",
+  "securityDefinitions": { "nosec_sc": { "scheme": "nosec" } },
+  "security": ["nosec_sc"],
+  "properties": {
+    "temperature": {
+      "type": "number",
+      "unit": "celsius",
+      "readOnly": true,
+      "description": "Current temperature from BME280",
+      "forms": [{ "href": "mqtt://{broker}/thingwire/{device_id}/telemetry", "op": "observeproperty" }]
+    },
+    "pressure": {
+      "type": "number",
+      "unit": "hPa",
+      "readOnly": true,
+      "description": "Barometric pressure from BME280",
+      "forms": [{ "href": "mqtt://{broker}/thingwire/{device_id}/telemetry", "op": "observeproperty" }]
+    },
+    "humidity": {
+      "type": "number",
+      "unit": "percent",
+      "readOnly": true,
+      "description": "Relative humidity from BME280",
+      "forms": [{ "href": "mqtt://{broker}/thingwire/{device_id}/telemetry", "op": "observeproperty" }]
+    }
+  },
+  "actions": {}
+}

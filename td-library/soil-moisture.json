@@ -1,0 +1,19 @@
+{
+  "@context": "https://www.w3.org/2019/wot/td/v1.1",
+  "@type": "Thing",
+  "id": "urn:thingwire:device:{device_id}",
+  "title": "Soil Moisture Sensor",
+  "description": "Capacitive soil moisture sensor for plant monitoring",
+  "securityDefinitions": { "nosec_sc": { "scheme": "nosec" } },
+  "security": ["nosec_sc"],
+  "properties": {
+    "moisture": {
+      "type": "number",
+      "unit": "percent",
+      "readOnly": true,
+      "description": "Soil moisture level (0=dry, 100=saturated)",
+      "forms": [{ "href": "mqtt://{broker}/thingwire/{device_id}/telemetry", "op": "observeproperty" }]
+    }
+  },
+  "actions": {}
+}

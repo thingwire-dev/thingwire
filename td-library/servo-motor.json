@@ -1,0 +1,34 @@
+{
+  "@context": "https://www.w3.org/2019/wot/td/v1.1",
+  "@type": "Thing",
+  "id": "urn:thingwire:device:{device_id}",
+  "title": "Servo Motor",
+  "description": "SG90 micro servo motor with angle control",
+  "securityDefinitions": { "nosec_sc": { "scheme": "nosec" } },
+  "security": ["nosec_sc"],
+  "properties": {
+    "angle": {
+      "type": "number",
+      "unit": "degrees",
+      "readOnly": true,
+      "description": "Current servo angle position (0-180)",
+      "forms": [{ "href": "mqtt://{broker}/thingwire/{device_id}/telemetry", "op": "observeproperty" }]
+    }
+  },
+  "actions": {
+    "setAngle": {
+      "title": "Set servo angle",
+      "description": "Move servo to a specific angle. Controls physical motor position.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "angle": { "type": "number", "description": "Target angle in degrees (0-180)" }
+        },
+        "required": ["angle"]
+      },
+      "safe": false,
+      "idempotent": true,
+      "forms": [{ "href": "mqtt://{broker}/thingwire/{device_id}/command", "op": "invokeaction" }]
+    }
+  }
+}

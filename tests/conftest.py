@@ -2,7 +2,7 @@
 
 import pytest
 
-from gateway.config import GatewayConfig
+from thingwire.config import GatewayConfig
 
 
 @pytest.fixture

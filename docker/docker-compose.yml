@@ -9,7 +9,9 @@ services:
     restart: unless-stopped
 
   gateway:
-    build: .
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
     depends_on:
       - mosquitto
     environment:

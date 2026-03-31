@@ -1,9 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "thingwire-gateway"
-version = "0.1.0"
+name = "thingwire"
+version = "0.2.0"
 description = "AI-to-hardware gateway. WoT Thing Description to MCP tools."
-requires-python = ">=3.11"
+readme = "README.md"
 license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp>=2.0.0",
+    "paho-mqtt>=2.1.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "pyyaml>=6.0.2",
+    "aiosqlite>=0.20.0",
+    "uvicorn>=0.34.0",
+    "click>=8.1.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -13,6 +28,12 @@ dev = [
     "ruff>=0.8.0",
     "mypy>=1.13.0",
 ]
+
+[project.scripts]
+thingwire = "thingwire.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/thingwire"]
 
 [tool.ruff]
 line-length = 100

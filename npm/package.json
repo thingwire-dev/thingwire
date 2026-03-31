@@ -1,0 +1,32 @@
+{
+  "name": "thingwire",
+  "version": "0.3.1",
+  "description": "AI-to-hardware gateway. WoT Thing Description → MCP tools. Let AI agents safely control sensors and actuators.",
+  "keywords": [
+    "mcp",
+    "iot",
+    "ai-agent",
+    "esp32",
+    "mqtt",
+    "wot",
+    "hardware",
+    "sensors",
+    "claude"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thingwire-dev/thingwire"
+  },
+  "homepage": "https://github.com/thingwire-dev/thingwire",
+  "bin": {
+    "thingwire-mcp": "index.js"
+  },
+  "files": [
+    "index.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {}
+}

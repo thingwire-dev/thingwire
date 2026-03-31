@@ -1,0 +1,13 @@
+# ThingWire Safety Configuration
+# Devices are auto-registered from their WoT TD on discovery.
+# Add explicit overrides here if needed.
+
+devices: {}
+
+global:
+  require_confirmation_for_dangerous: true
+  deadman_switch_timeout_seconds: 300
+  audit_log_retention_days: 30
+  default_rate_limit:
+    max_calls: 10
+    window_seconds: 60

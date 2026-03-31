@@ -1,0 +1,20 @@
+{
+  "@context": "https://www.w3.org/2019/wot/td/v1.1",
+  "@type": "Thing",
+  "id": "urn:thingwire:device:thingwire-demo-001",
+  "title": "ThingWire Demo Device",
+  "description": "ESP32-S3 with temperature, humidity, motion sensors and relay actuator",
+  "securityDefinitions": {
+    "nosec_sc": { "scheme": "nosec" }
+  },
+  "security": ["nosec_sc"],
+  "properties": {
+    "motion": {
+      "type": "boolean",
+      "readOnly": true,
+      "description": "PIR motion sensor — true when motion detected",
+      "forms": [{ "href": "mqtt://localhost/thingwire/thingwire-demo-001/telemetry", "op": "observeproperty" }]
+    }
+  },
+  "actions": {}
+}

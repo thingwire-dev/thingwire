@@ -4,7 +4,11 @@ import json
 
 import pytest
 
-from gateway.td_loader import ThingDescription, parse_thing_description, parse_thing_description_dict
+from thingwire.td_loader import (
+    ThingDescription,
+    parse_thing_description,
+    parse_thing_description_dict,
+)
 
 
 def test_parse_valid_td(sample_td_json: str) -> None:
