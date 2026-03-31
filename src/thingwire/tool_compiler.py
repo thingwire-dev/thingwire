@@ -94,10 +94,7 @@ def _compile_action(
     slug = _slugify(action_name)
 
     base_description = action.description
-    if not action.safe:
-        description = f"{DANGEROUS_PREFIX}{base_description}"
-    else:
-        description = base_description
+    description = f"{DANGEROUS_PREFIX}{base_description}" if not action.safe else base_description
 
     parameters: list[ToolParameter] = []
     if action.input:
@@ -123,9 +120,7 @@ def _compile_action(
     )
 
 
-def compile_tools(
-    td: ThingDescription, device_prefix: str | None = None
-) -> list[CompiledTool]:
+def compile_tools(td: ThingDescription, device_prefix: str | None = None) -> list[CompiledTool]:
     """Compile a WoT Thing Description into MCP tool definitions.
 
     Each TD property becomes a read_* tool, each action becomes a do_* tool.

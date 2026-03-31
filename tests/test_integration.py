@@ -365,9 +365,7 @@ class TestEndToEndWiring:
         assert bridge.is_device_online("thingwire-demo-001") is True
 
     @pytest.mark.asyncio
-    async def test_full_read_with_audit(
-        self, bridge: MqttBridge, audit: AuditLog
-    ) -> None:
+    async def test_full_read_with_audit(self, bridge: MqttBridge, audit: AuditLog) -> None:
         """Complete read flow: bridge → reading → audit record."""
         reading = bridge.get_latest_reading("thingwire-demo-001", "temp1")
         await audit.record(

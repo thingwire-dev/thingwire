@@ -94,10 +94,13 @@ class TestRateLimiterPruning:
     def test_prune_removes_expired_windows(self) -> None:
         """Pruning should remove rate limiters with no recent calls."""
         safety = SafetyLayer()
-        safety.register_device("dev-1", {
-            "properties": {},
-            "actions": {"setRelay": {"safe": False}},
-        })
+        safety.register_device(
+            "dev-1",
+            {
+                "properties": {},
+                "actions": {"setRelay": {"safe": False}},
+            },
+        )
 
         # Make some calls
         safety.check_rate_limit("dev-1", "do_setRelay")
@@ -116,10 +119,13 @@ class TestRateLimiterPruning:
     def test_prune_keeps_active_windows(self) -> None:
         """Pruning should keep rate limiters with recent calls."""
         safety = SafetyLayer()
-        safety.register_device("dev-1", {
-            "properties": {},
-            "actions": {"setRelay": {"safe": False}},
-        })
+        safety.register_device(
+            "dev-1",
+            {
+                "properties": {},
+                "actions": {"setRelay": {"safe": False}},
+            },
+        )
 
         safety.check_rate_limit("dev-1", "do_setRelay")
 

@@ -9,8 +9,9 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 import paho.mqtt.client as mqtt
 
@@ -191,7 +192,9 @@ class MqttBridge:
             self._client.connect(self._config.mqtt_broker, self._config.mqtt_port)
         except OSError as e:
             self._state = ConnectionState.DISCONNECTED
-            msg = f"Could not connect to MQTT broker at {self._config.mqtt_broker}:{self._config.mqtt_port}: {e}"
+            host = self._config.mqtt_broker
+            port = self._config.mqtt_port
+            msg = f"Could not connect to MQTT broker at {host}:{port}: {e}"
             raise ConnectionError(msg) from e
 
         self._client.loop_start()
@@ -208,7 +211,7 @@ class MqttBridge:
                 f"Timed out connecting to MQTT broker at "
                 f"{self._config.mqtt_broker}:{self._config.mqtt_port}"
             )
-            raise ConnectionError(msg)
+            raise ConnectionError(msg) from None
 
     async def disconnect(self) -> None:
         """Gracefully disconnect from MQTT broker."""
@@ -314,14 +317,16 @@ class MqttBridge:
         result = self._client.publish(topic, payload)
 
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
-            logger.error(
-                "Failed to publish command to %s (rc=%d)", topic, result.rc
-            )
+            logger.error("Failed to publish command to %s (rc=%d)", topic, result.rc)
             raise RuntimeError(f"MQTT publish failed with rc={result.rc}")
 
         logger.info(
             "Sent command to %s/%s: %s=%s (action_id=%s)",
-            device_id, target, command, value, action_id,
+            device_id,
+            target,
+            command,
+            value,
+            action_id,
         )
         return action_id
 

@@ -59,7 +59,11 @@ class AuditLog:
         # Rotate old entries on startup
         deleted = await self._rotate()
         if deleted > 0:
-            logger.info("Audit log rotated: deleted %d entries older than %d days", deleted, self._retention_days)
+            logger.info(
+                "Audit log rotated: deleted %d entries older than %d days",
+                deleted,
+                self._retention_days,
+            )
 
         logger.info("Audit log initialized at %s", self._db_path)
 
@@ -92,7 +96,8 @@ class AuditLog:
         try:
             cursor = await self._db.execute(
                 """
-                INSERT INTO commands (timestamp, device_id, action, params_json, result_json, confirmed, source)
+                INSERT INTO commands
+                (timestamp, device_id, action, params_json, result_json, confirmed, source)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -127,7 +132,8 @@ class AuditLog:
             if device_id:
                 cursor = await self._db.execute(
                     """
-                    SELECT id, timestamp, device_id, action, params_json, result_json, confirmed, source
+                    SELECT id, timestamp, device_id, action,
+                        params_json, result_json, confirmed, source
                     FROM commands
                     WHERE device_id = ?
                     ORDER BY timestamp DESC
@@ -138,7 +144,8 @@ class AuditLog:
             else:
                 cursor = await self._db.execute(
                     """
-                    SELECT id, timestamp, device_id, action, params_json, result_json, confirmed, source
+                    SELECT id, timestamp, device_id, action,
+                        params_json, result_json, confirmed, source
                     FROM commands
                     ORDER BY timestamp DESC
                     LIMIT ?
@@ -169,7 +176,8 @@ class AuditLog:
         if not self._db or self._retention_days <= 0:
             return 0
 
-        cutoff = (datetime.now(UTC) - timedelta(days=self._retention_days)).isoformat().replace("+00:00", "Z")
+        cutoff_dt = datetime.now(UTC) - timedelta(days=self._retention_days)
+        cutoff = cutoff_dt.isoformat().replace("+00:00", "Z")
         try:
             cursor = await self._db.execute(
                 "DELETE FROM commands WHERE timestamp < ?",

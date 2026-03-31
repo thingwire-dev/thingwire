@@ -181,9 +181,7 @@ class SafetyLayer:
         """Record a heartbeat from a device (manual call)."""
         self._last_heartbeat[device_id] = time.monotonic()
 
-    def update_heartbeat_from_telemetry(
-        self, device_id: str, telemetry_time: float | None
-    ) -> None:
+    def update_heartbeat_from_telemetry(self, device_id: str, telemetry_time: float | None) -> None:
         """Update heartbeat using the bridge's telemetry timestamp.
 
         Called by the MCP server before safety checks to keep the deadman
@@ -216,7 +214,9 @@ class SafetyLayer:
         for device_id in list(self._rate_limiters):
             for action in list(self._rate_limiters[device_id]):
                 limiter = self._rate_limiters[device_id][action]
-                limiter.timestamps = [t for t in limiter.timestamps if now - t < limiter.window_seconds]
+                limiter.timestamps = [
+                    t for t in limiter.timestamps if now - t < limiter.window_seconds
+                ]
                 if not limiter.timestamps:
                     del self._rate_limiters[device_id][action]
                     pruned += 1

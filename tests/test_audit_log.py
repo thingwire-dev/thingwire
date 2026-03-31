@@ -67,7 +67,10 @@ async def test_limit(audit_log: AuditLog) -> None:
 async def test_source_field(audit_log: AuditLog) -> None:
     """Source field should be stored correctly."""
     await audit_log.record(
-        "dev-1", "read_temp", {}, {"value": 22},
+        "dev-1",
+        "read_temp",
+        {},
+        {"value": 22},
         source="cli",
     )
     entries = await audit_log.get_recent()

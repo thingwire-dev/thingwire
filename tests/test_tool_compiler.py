@@ -70,15 +70,17 @@ def test_device_id_extracted(sample_td_json: str) -> None:
 
 def test_empty_td_produces_no_tools() -> None:
     """TD with no properties or actions should produce no tools."""
-    td_json = json.dumps({
-        "@context": "https://www.w3.org/2019/wot/td/v1.1",
-        "@type": "Thing",
-        "id": "urn:thingwire:device:empty",
-        "title": "Empty",
-        "description": "No sensors",
-        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
-        "security": ["nosec_sc"],
-    })
+    td_json = json.dumps(
+        {
+            "@context": "https://www.w3.org/2019/wot/td/v1.1",
+            "@type": "Thing",
+            "id": "urn:thingwire:device:empty",
+            "title": "Empty",
+            "description": "No sensors",
+            "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+            "security": ["nosec_sc"],
+        }
+    )
     from thingwire.td_loader import parse_thing_description as parse
 
     td = parse(td_json)

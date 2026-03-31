@@ -11,13 +11,16 @@ from thingwire.safety import SafetyError, SafetyLayer
 def safety() -> SafetyLayer:
     """Create a safety layer with no config file (uses defaults)."""
     layer = SafetyLayer()
-    layer.register_device("test-001", {
-        "properties": {"temperature": {}, "humidity": {}},
-        "actions": {
-            "setRelay": {"safe": False},
-            "readSensor": {"safe": True},
+    layer.register_device(
+        "test-001",
+        {
+            "properties": {"temperature": {}, "humidity": {}},
+            "actions": {
+                "setRelay": {"safe": False},
+                "readSensor": {"safe": True},
+            },
         },
-    })
+    )
     return layer
 
 

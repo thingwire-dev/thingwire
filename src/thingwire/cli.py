@@ -159,8 +159,7 @@ def devices(broker: str, port: int, timeout: float) -> None:
                 props = len(td.properties) if td else 0
                 actions = len(td.actions) if td else 0
                 click.echo(
-                    f"  {device_id}  {title}  [{status}]  "
-                    f"{props} properties, {actions} actions"
+                    f"  {device_id}  {title}  [{status}]  {props} properties, {actions} actions"
                 )
 
         await bridge.disconnect()

@@ -10,7 +10,7 @@ import os
 import signal
 import sys
 
-from gateway import __version__
+from thingwire import __version__
 from thingwire.audit_log import AuditLog
 from thingwire.config import GatewayConfig
 from thingwire.mcp_server import create_mcp_server, register_device_tools, register_meta_tools
@@ -22,6 +22,7 @@ logger = logging.getLogger("gateway")
 # Components tracked for ordered shutdown
 _bridge: MqttBridge | None = None
 _audit: AuditLog | None = None
+_shutdown_tasks: set[asyncio.Task[None]] = set()
 
 
 async def _shutdown() -> None:
@@ -39,12 +40,14 @@ def _handle_signal(sig: int, _frame: object) -> None:
     logger.info("Received signal %d, initiating shutdown", sig)
     loop = asyncio.get_event_loop()
     if loop.is_running():
-        loop.create_task(_shutdown())
+        task = loop.create_task(_shutdown())
+        _shutdown_tasks.add(task)
+        task.add_done_callback(_shutdown_tasks.discard)
 
 
 async def setup(config: GatewayConfig) -> None:
     """Initialize all components and start the MCP server."""
-    global _bridge, _audit  # noqa: PLW0603
+    global _bridge, _audit
 
     # Initialize audit log
     db_dir = os.path.dirname(config.audit_db_path)
@@ -119,7 +122,7 @@ def main() -> None:
     try:
         config = GatewayConfig()
     except Exception as e:
-        print(f"Configuration error: {e}", file=sys.stderr)  # noqa: T201
+        print(f"Configuration error: {e}", file=sys.stderr)
         sys.exit(1)
 
     _setup_logging(config)

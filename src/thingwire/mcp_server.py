@@ -11,7 +11,6 @@ from typing import Any
 from fastmcp import FastMCP
 
 from thingwire.audit_log import AuditLog
-from thingwire.config import GatewayConfig
 from thingwire.mqtt_bridge import MqttBridge
 from thingwire.safety import SafetyError, SafetyLayer
 from thingwire.td_loader import ThingDescription
@@ -62,12 +61,19 @@ def _build_action_signature(params: list[ToolParameter]) -> inspect.Signature:
         annotation = _TYPE_MAP.get(p.type, str)
         if p.required:
             sig_params.append(
-                inspect.Parameter(p.name, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=annotation)
+                inspect.Parameter(
+                    p.name,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    annotation=annotation,
+                )
             )
         else:
             sig_params.append(
                 inspect.Parameter(
-                    p.name, inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None, annotation=annotation | None  # type: ignore[operator]
+                    p.name,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    default=None,
+                    annotation=annotation | None,  # type: ignore[operator]
                 )
             )
     return inspect.Signature(sig_params, return_annotation=dict[str, Any])
@@ -154,9 +160,7 @@ def _register_action_tool(
     # FastMCP inspects __signature__ AND __annotations__ via get_type_hints().
     if tool.parameters:
         sig = _build_action_signature(tool.parameters)
-        annotations: dict[str, Any] = {
-            p.name: _TYPE_MAP.get(p.type, str) for p in tool.parameters
-        }
+        annotations: dict[str, Any] = {p.name: _TYPE_MAP.get(p.type, str) for p in tool.parameters}
         annotations["return"] = dict[str, Any]
 
         async def action_handler(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -167,6 +171,7 @@ def _register_action_tool(
         action_handler.__signature__ = sig  # type: ignore[attr-defined]
         action_handler.__annotations__ = annotations
     else:
+
         async def action_handler() -> dict[str, Any]:  # type: ignore[misc]
             return await _execute({})
 
@@ -213,11 +218,13 @@ def register_meta_tools(
         result: list[dict[str, str]] = []
         for device_id in devices:
             td = bridge.get_td(device_id)
-            result.append({
-                "device_id": device_id,
-                "title": td.title if td else "unknown",
-                "status": bridge.get_device_status(device_id),
-            })
+            result.append(
+                {
+                    "device_id": device_id,
+                    "title": td.title if td else "unknown",
+                    "status": bridge.get_device_status(device_id),
+                }
+            )
         return {"devices": result, "count": len(result)}
 
     @mcp.tool()
