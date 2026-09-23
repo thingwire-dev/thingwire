@@ -8,6 +8,7 @@
 [![MQTT](https://img.shields.io/badge/Protocol-MQTT-660066.svg?logo=eclipsemosquitto&logoColor=white)](https://mqtt.org/)
 [![W3C WoT TD](https://img.shields.io/badge/Standard-W3C%20WoT%20TD-005A9C.svg?logo=w3c&logoColor=white)](https://www.w3.org/TR/wot-thing-description11/)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-8B5CF6.svg)](https://modelcontextprotocol.io/)
+[![Discord](https://img.shields.io/discord/829168897080557579?logo=discord&logoColor=white&label=discord&color=5865F2)](https://discord.gg/Ar5pcaZB99)
 
 ## What it does
 
@@ -198,6 +199,12 @@ mypy src/thingwire/ --strict
 - [ ] BLE device support alongside MQTT
 - [ ] Home Assistant integration
 - [ ] Pre-built TD templates for common sensors
+
+## Community
+
+Join the GLINR Discord to ask questions, share what you're building, or talk to maintainers directly. This project has its own forum channel, #thingwire.
+
+<a href="https://discord.gg/Ar5pcaZB99"><img src="https://discord.com/api/guilds/829168897080557579/widget.png?style=banner2" alt="Join the GLINR Discord" /></a>
 
 ## Contributing
 
