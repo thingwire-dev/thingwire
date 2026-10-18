@@ -1,0 +1,30 @@
+# Desk bot profile for the Seeed XIAO ESP32S3 Sense.
+# Single source of truth for pins, motion limits and the Thing Description.
+# Regenerate firmware/src/deskbot_gen.h with: python3 firmware/tools/gen_deskbot_td.py
+
+device_id: desk-bot-001
+title: Desk Bot
+description: Desk robot with a two-axis head (pan/tilt), OLED eyes and a presence sensor
+
+# XIAO ESP32S3 Sense header pins (GPIO numbers). See docs/desk-bot-wiring.md.
+pins:
+  servo_pan: 1    # D0
+  servo_tilt: 2   # D1
+  pir: 4          # D3
+  i2c_sda: 5      # D4
+  i2c_scl: 6      # D5
+
+# Angles are in degrees; 0 is the centered park pose.
+servo:
+  pan:  { min: -90, max: 90, park: 0, max_slew_deg_per_sec: 90 }
+  tilt: { min: -30, max: 30, park: 0, max_slew_deg_per_sec: 90 }
+  pulse_min_us: 500
+  pulse_max_us: 2500
+
+# Park the head if no valid command arrives for this long.
+deadman_timeout_ms: 30000
+
+expressions: [neutral, happy, curious, sleepy, surprised, alert]
+
+nod: { min_times: 1, max_times: 3 }
+sweep: { min_speed_deg_s: 10, max_speed_deg_s: 120 }
