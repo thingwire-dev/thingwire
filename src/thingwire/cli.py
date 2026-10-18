@@ -7,6 +7,7 @@ import sys
 import click
 
 from thingwire import __version__
+from thingwire.identity_gate import TheAuthClient
 
 DOCKER_COMPOSE_TEMPLATE = """\
 services:
@@ -59,16 +60,24 @@ def main() -> None:
 @click.option(
     "--transport",
     default="stdio",
-    type=click.Choice(["stdio", "sse"]),
-    help="MCP transport",
+    type=click.Choice(["stdio", "sse", "http"]),
+    help="MCP transport (http requires identity: see 'thingwire identity init')",
 )
+@click.option("--sse-host", default=None, help="Loopback host for sse (sse has no identity checks)")
 @click.option(
     "--log-level",
     default="INFO",
     type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"]),
 )
 @click.option("--ha-discovery", is_flag=True, default=False, help="Publish Home Assistant MQTT discovery messages")
-def serve(broker: str | None, port: int | None, transport: str, log_level: str, ha_discovery: bool) -> None:
+def serve(
+    broker: str | None,
+    port: int | None,
+    transport: str,
+    sse_host: str | None,
+    log_level: str,
+    ha_discovery: bool,
+) -> None:
     """Start the ThingWire gateway and MCP server."""
     import asyncio
 
@@ -76,6 +85,15 @@ def serve(broker: str | None, port: int | None, transport: str, log_level: str, 
         os.environ["THINGWIRE_MQTT_BROKER"] = broker
     if port:
         os.environ["THINGWIRE_MQTT_PORT"] = str(port)
+    if transport == "sse":
+        from thingwire.identity import IdentityError, check_sse_host
+
+        try:
+            check_sse_host(sse_host)
+        except IdentityError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+        os.environ["THINGWIRE_SSE_HOST"] = sse_host or ""
     os.environ["THINGWIRE_LOG_LEVEL"] = log_level
     os.environ["THINGWIRE_TRANSPORT"] = transport
     if ha_discovery:
@@ -420,6 +438,106 @@ def firmware_config(yaml_file: str, output: str | None) -> None:
     click.echo(f"  Device: {cfg.get('device_id', 'thingwire-demo-001')}")
     click.echo(f"  Broker: {mqtt.get('broker', '192.168.1.100')}:{mqtt.get('port', 1883)}")
     click.echo(f"\nFlash with: cd firmware && pio run --target upload")
+
+
+AUTH_URL = click.option(
+    "--auth-url",
+    envvar="THINGWIRE_AUTH_ISSUER",
+    default="http://localhost:9200",
+    show_default=True,
+    help="Identity service URL",
+)
+OPERATOR_TOKEN = click.option(
+    "--operator-token",
+    envvar="THINGWIRE_OPERATOR_TOKEN",
+    required=True,
+    help="Operator token (humans only; never give it to the gateway or a coding agent)",
+)
+
+
+@main.group()
+def identity() -> None:
+    """Agent identity: register the gateway, create agents, mint tokens."""
+
+
+@identity.command(name="init")
+@AUTH_URL
+@OPERATOR_TOKEN
+@click.option("--resource", default="http://localhost:8000/mcp", show_default=True,
+              help="Gateway MCP URL (token audience)")
+@click.option("--device", default="desk-bot", show_default=True, help="Device id")
+@click.option("--safe-action", "safe_actions", multiple=True, default=["look_at"],
+              show_default=True, help="Safe action to allow (repeatable)")
+@click.option("--name", default="thingwire-demo-agent", show_default=True)
+@click.option("--save", "save_path", default=None, help="Save agent credentials (mode 0600)")
+def identity_init(auth_url: str, operator_token: str, resource: str, device: str,
+                  safe_actions: tuple[str, ...], name: str, save_path: str | None) -> None:
+    """Create a demo agent and print a token with read and safe-act scopes only."""
+    from thingwire import identity_admin as ia
+    from thingwire.identity import IdentityError
+
+    try:
+        scopes = ia.safe_scopes(device, list(safe_actions))
+        client = TheAuthClient(auth_url, operator_token)
+        ia.check_resource(client, resource, scopes)
+        creds = ia.create_agent(client, name, scopes)
+        if save_path:
+            ia.save_credentials(save_path, creds)
+        tok = ia.mint_token(client, creds, resource, scopes)
+    except (IdentityError, OSError) as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    click.echo(f"agent {creds['agent_id']} scopes: {' '.join(scopes)}", err=True)
+    click.echo(f"token expires in {tok.get('expires_in', '?')}s; no dangerous scopes", err=True)
+    if not save_path:
+        click.echo(f"client_id={creds['client_id']} client_secret={creds['client_secret']} "
+                   "(shown once)", err=True)
+    click.echo(tok["access_token"])
+
+
+@identity.command(name="token")
+@AUTH_URL
+@click.option("--creds", "creds_path", required=True, help="File from identity init --save")
+@click.option("--resource", default="http://localhost:8000/mcp", show_default=True)
+@click.option("--scope", "scopes", multiple=True, required=True, help="Scope to request")
+def identity_token(auth_url: str, creds_path: str, resource: str, scopes: tuple[str, ...]) -> None:
+    """Mint a fresh token for a saved agent. The service limits scopes to the agent's own."""
+    from thingwire import identity_admin as ia
+    from thingwire.identity import IdentityError
+
+    try:
+        creds = ia.load_credentials(creds_path)
+        tok = ia.mint_token(TheAuthClient(auth_url, ""), creds, resource, list(scopes))
+    except (IdentityError, OSError, ValueError) as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    click.echo(tok["access_token"])
+
+
+@main.command()
+@click.argument("approval_id", required=False)
+@click.option("--list", "list_pending", is_flag=True, help="List pending approvals")
+@click.option("--deny", is_flag=True, help="Deny instead of approve")
+@AUTH_URL
+@OPERATOR_TOKEN
+def approve(
+    approval_id: str | None, list_pending: bool, deny: bool, auth_url: str, operator_token: str
+) -> None:
+    """Approve (or --deny) a pending dangerous-action approval by id."""
+    from thingwire import identity_admin as ia
+    from thingwire.identity import IdentityError
+
+    client = TheAuthClient(auth_url, operator_token)
+    try:
+        if list_pending or not approval_id:
+            for a in ia.pending_approvals(client):
+                click.echo(f"{a['id']}  {a.get('resource', '')}  agent {a.get('agentId', '')}")
+            return
+        res = ia.decide_approval(client, approval_id, not deny)
+    except IdentityError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    click.echo(f"{res.get('status', 'done')}: {res.get('action', '')} {res.get('resource', '')}")
 
 
 @main.command()
