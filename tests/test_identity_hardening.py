@@ -62,7 +62,6 @@ async def test_low_privilege_agent_cannot_borrow_identity_by_nesting(key: Any) -
     assert ident_.agent_id == "LOWPRIV"
 
 
-# 4. revocation window is bounded by a short max token lifetime
 async def test_max_token_lifetime_default_900(key: Any) -> None:
     assert IdentitySettings().max_token_lifetime == 900
     now = int(time.time())
@@ -71,7 +70,6 @@ async def test_max_token_lifetime_default_900(key: Any) -> None:
         await verifier(key).verify(token(key, iat=now, exp=now + 901))
 
 
-# 5. sse has no identity layer
 def test_sse_refused_unless_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(IdentityError):
         check_sse_host(None)
@@ -86,7 +84,6 @@ def test_sse_refused_unless_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
         create_mcp_server()
 
 
-# 6. a valid token must not be rejected once per JWKS ttl
 async def test_ttl_expiry_reloads_instead_of_clearing(key: Any) -> None:
     calls: list[int] = []
 
