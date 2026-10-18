@@ -92,7 +92,8 @@ def test_labels_from_event(tmp_path: Path) -> None:
     assert co.labels_from_event(str(ev)) == {"shared-file-ok", "x"}
 
 
-def test_main_uses_files_and_labels() -> None:
+def test_main_uses_files_and_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)  # CI event labels must not leak in
     cfg = str(ROOT / ".agents" / "ownership.yaml")
     base = ["--config", cfg, "--branch", "feat/w2-m"]
     assert co.main([*base, "--files", "src/thingwire/safety_motion.py"]) == 0
