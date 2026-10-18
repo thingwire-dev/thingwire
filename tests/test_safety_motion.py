@@ -12,7 +12,9 @@ SERVO_TD: dict[str, Any] = {
             "safe": True,
             "input": {
                 "type": "object",
-                "properties": {"angle": {"type": "number", "minimum": 0, "maximum": 180}},
+                "properties": {
+                    "angle": {"type": "number", "minimum": 0, "maximum": 180, "unit": "deg"}
+                },
             },
         },
         "fastPan": {
@@ -114,6 +116,78 @@ def test_per_axis_slew_override_and_denied_move_keeps_state() -> None:
     clock.now += 1
     assert layer.evaluate("servo", "do_fastPan", {"pan": 11}).code == "SLEW_EXCEEDED"
     assert layer.evaluate("servo", "do_fastPan", {"pan": 10}).allowed
+
+
+UNITS_TD: dict[str, Any] = {
+    "actions": {
+        "setLevel": {
+            "safe": True,
+            "input": {
+                "type": "object",
+                "properties": {"level": {"type": "number", "minimum": 0, "maximum": 255}},
+            },
+        },
+        "setDeg": {
+            "safe": True,
+            "input": {
+                "type": "object",
+                "properties": {
+                    "angle": {"type": "number", "minimum": 0, "maximum": 180, "unit": "deg"}
+                },
+            },
+        },
+        "setLimited": {
+            "safe": True,
+            "input": {
+                "type": "object",
+                "properties": {
+                    "level": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 255,
+                        "maxSlewDegPerSec": 10,
+                    }
+                },
+            },
+        },
+    }
+}
+
+
+def make_units_layer() -> tuple[SafetyLayer, FakeClock]:
+    clock = FakeClock()
+    layer = SafetyLayer(clock=clock)
+    layer.register_device("dev", UNITS_TD)
+    return layer, clock
+
+
+def test_unitless_axis_gets_no_default_slew() -> None:
+    layer, _ = make_units_layer()
+    assert layer.evaluate("dev", "do_setLevel", {"level": 0}).allowed
+    result = layer.evaluate("dev", "do_setLevel", {"level": 255})
+    assert (result.allowed, result.code) == (True, "OK")
+
+
+@pytest.mark.parametrize(
+    ("dt", "second", "allowed", "code"),
+    [(1.0, 90, True, "OK"), (1.0, 91, False, "SLEW_EXCEEDED")],
+)
+def test_deg_unit_axis_gets_default_90_deg_per_sec(
+    dt: float, second: float, allowed: bool, code: str
+) -> None:
+    layer, clock = make_units_layer()
+    assert layer.evaluate("dev", "do_setDeg", {"angle": 0}).allowed
+    clock.now += dt
+    result = layer.evaluate("dev", "do_setDeg", {"angle": second})
+    assert (result.allowed, result.code) == (allowed, code)
+
+
+def test_unitless_axis_with_explicit_slew_is_limited() -> None:
+    layer, clock = make_units_layer()
+    assert layer.evaluate("dev", "do_setLimited", {"level": 0}).allowed
+    clock.now += 1
+    assert layer.evaluate("dev", "do_setLimited", {"level": 11}).code == "SLEW_EXCEEDED"
+    assert layer.evaluate("dev", "do_setLimited", {"level": 10}).allowed
 
 
 def test_rate_limit_hit_and_window_recovery() -> None:

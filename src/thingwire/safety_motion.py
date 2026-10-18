@@ -2,7 +2,9 @@
 
 Pure logic with an injectable clock so tests are deterministic. Limits come from
 the WoT TD action input schema (`minimum`, `maximum`, and the ThingWire extension
-`maxSlewDegPerSec`, default 90 deg/s).
+`maxSlewDegPerSec`). Axes with a `unit` of deg (or an alias in ANGLE_UNITS) and
+a range get a default 90 deg/s slew limit; unitless axes get none unless they set
+`maxSlewDegPerSec` explicitly.
 """
 
 import math
@@ -58,7 +60,7 @@ def extract_limits(action: dict[str, Any]) -> dict[str, AxisLimit]:
         lo, hi = _num(spec.get("minimum")), _num(spec.get("maximum"))
         slew = _num(spec.get("maxSlewDegPerSec"))
         unit = spec.get("unit")
-        angular = unit is None or str(unit).lower() in ANGLE_UNITS
+        angular = unit is not None and str(unit).lower() in ANGLE_UNITS
         if slew is None and angular and (lo is not None or hi is not None):
             slew = DEFAULT_MAX_SLEW_DEG_PER_SEC
         if lo is not None or hi is not None or slew is not None:
