@@ -1,66 +1,137 @@
 name: CI
 
+# Runs on every PR into main or a release branch, and on pushes to them.
+# Required checks (branch protection): pytest, ruff, mypy, dashes, ownership, firmware.
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
   pull_request:
+    branches: [main, "release/**"]
+    # labeled/unlabeled so adding `shared-file-ok` re-runs the ownership check.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  python:
-    name: Python (pytest, ruff, mypy)
+  pytest:
+    name: pytest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           cache: pip
           cache-dependency-path: pyproject.toml
-
       - name: Install
         run: pip install -e ".[dev]"
-
       - name: pytest
         run: pytest -q
 
-      # Report-only until the existing ruff findings are fixed.
-      - name: ruff
-        continue-on-error: true
-        run: ruff check .
-
-      # Report-only: mypy --strict currently fails on existing code (missing yaml stubs, paho/FastMCP attrs).
-      - name: mypy --strict
-        continue-on-error: true
-        run: mypy --strict src
-
-  firmware:
-    name: Firmware (pio run, all envs)
+  ruff:
+    name: ruff
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: pip install -e ".[dev]"
+      # Blocking for the files listed in .agents/strict-files.txt (ratchet: only grows).
+      - name: ruff (blocking, strict list)
+        run: grep -hv '^#' .agents/strict-files.txt | grep -v '^$' | xargs ruff check
+      - name: ruff (report-only, whole repo)
+        continue-on-error: true
+        run: ruff check .
 
+  mypy:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: mypy --strict (blocking, strict list)
+        run: grep -hv '^#' .agents/strict-files.txt | grep -v '^$' | xargs mypy --strict
+      - name: mypy --strict (report-only, whole repo)
+        continue-on-error: true
+        run: mypy --strict src tests scripts
+
+  dashes:
+    name: dashes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check for em and en dashes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            python scripts/check_dashes.py --base "origin/$BASE_REF"
+          elif echo "$BEFORE_SHA" | grep -Eq '^0*$'; then
+            python scripts/check_dashes.py
+          else
+            python scripts/check_dashes.py --base "$BEFORE_SHA"
+          fi
+
+  ownership:
+    name: ownership
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pyyaml
+      # Labels come from the event payload (GITHUB_EVENT_PATH); branch from GITHUB_HEAD_REF.
+      - name: Check file ownership
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python scripts/check_ownership.py --base "origin/$BASE_REF"
+
+  firmware:
+    name: firmware (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep in sync with firmware/platformio.ini when an env is added.
+        env: [esp32s3, xiao_esp32s3_deskbot]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
       - name: Cache PlatformIO
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: pio-${{ runner.os }}-${{ hashFiles('firmware/platformio.ini') }}
-
-      - name: Install PlatformIO
-        run: pip install platformio
-
-      - name: Build all firmware envs
+          key: pio-${{ runner.os }}-${{ matrix.env }}-${{ hashFiles('firmware/platformio.ini') }}
+      - run: pip install platformio
+      - name: Build
         working-directory: firmware
-        run: pio run
+        run: pio run -e ${{ matrix.env }}
