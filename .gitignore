@@ -24,7 +24,6 @@ data/
 docs-local/
 repo-ref/
 phases/
-CLAUDE.md
 .claude/worktrees/
 
 # IDE
