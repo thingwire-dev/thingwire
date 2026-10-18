@@ -12,6 +12,7 @@ from typing import Any
 import aiosqlite
 
 from thingwire.safety_motion import Decision
+from thingwire.safety_status import SafetyTransition
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +176,19 @@ class AuditLog:
             scopes=scopes,
             decision=verdict.decision,
             reason=verdict.code,
+        )
+
+    async def record_transition(self, t: SafetyTransition) -> int:
+        """Record a safety state transition (e-stop trip/reset, degraded, ok)."""
+        return await self.record(
+            t.device_id or "*",
+            f"safety:{t.event}",
+            {},
+            {**t.payload(), "detail": t.detail},
+            source="safety",
+            agent_id=t.actor,
+            decision="transition",
+            reason=f"{t.state.value}:{t.drop_reason or t.last_decision_code}",
         )
 
     async def get_recent(

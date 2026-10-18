@@ -10,6 +10,7 @@ import argparse
 import json
 import logging
 import math
+import sys
 import threading
 import time
 import uuid
@@ -19,6 +20,9 @@ from typing import Any
 
 import paho.mqtt.client as mqtt
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from desk_bot_estop import EstopMixin
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +61,7 @@ def _clamp_step(current: float, target: float, max_delta: float) -> float:
     return target if abs(delta) <= max_delta else current + math.copysign(max_delta, delta)
 
 
-class DeskBot:
+class DeskBot(EstopMixin):
     """Pure simulation state: head pose, expression, scene. No MQTT here."""
 
     def __init__(self, scene: dict[str, Any] | None = None, max_slew: float = DEFAULT_SLEW) -> None:
@@ -91,7 +95,6 @@ class DeskBot:
         return abs(self.pan - self._target[0]) < 1e-9 and abs(self.tilt - self._target[1]) < 1e-9
 
     # --- scene ----------------------------------------------------------
-
     def _in_view(self, pan_deg: float) -> bool:
         fov = float(self.scene.get("camera", {}).get("fov_deg", 60))
         return abs(pan_deg - self.pan) <= fov / 2
@@ -133,6 +136,8 @@ class DeskBot:
     def apply_command(self, cmd: dict[str, Any]) -> dict[str, Any]:
         """Apply a command message and return the ack payload."""
         action_id = cmd.get("action_id", str(uuid.uuid4()))
+        if self.estopped:
+            return self.estop_ack(action_id, _now())
         name = self._action_name(cmd)
         value = cmd.get("value")
         args = value if isinstance(value, dict) else {}
@@ -154,7 +159,6 @@ class DeskBot:
 
     @staticmethod
     def _action_name(cmd: dict[str, Any]) -> str:
-        """Resolve the action from command, or from the gateway-style target."""
         known = ("look_at", "set_expression", "nod", "sweep")
         for candidate in (cmd.get("command"), cmd.get("action")):
             if candidate in known:
@@ -219,9 +223,15 @@ def run(device_id: str, broker: str, port: int, scene_path: Path) -> None:
         client.publish(f"{prefix}/td", json.dumps(build_td(device_id, broker)), retain=True)
         client.publish(f"{prefix}/status", "online", retain=True)
         client.subscribe(f"{prefix}/command")
+        client.subscribe(f"{prefix}/estop")
+        client.subscribe("thingwire/estop")
         logger.info("Desk bot %s online", device_id)
 
     def on_message(client: mqtt.Client, _ud: object, msg: mqtt.MQTTMessage) -> None:
+        if msg.topic.endswith("/estop"):
+            with lock:
+                logger.warning("E-stop %s", bot.handle_estop_payload(bytes(msg.payload)))
+            return
         try:
             cmd = json.loads(msg.payload)
         except json.JSONDecodeError:

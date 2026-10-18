@@ -46,6 +46,8 @@ class MqttBridge:
         self._reconnect_count = 0
         self._shutting_down = False
         self.on_device_discovered: Callable[[str, dict[str, Any]], None] | None = None
+        # (device_id or None for global, payload, retained)
+        self.on_estop: Callable[[str | None, bytes, bool], None] | None = None
 
     @property
     def prefix(self) -> str:
@@ -84,6 +86,8 @@ class MqttBridge:
         client.subscribe(f"{self.prefix}/+/td")
         client.subscribe(f"{self.prefix}/+/telemetry")
         client.subscribe(f"{self.prefix}/+/status")
+        client.subscribe(f"{self.prefix}/+/estop")
+        client.subscribe(f"{self.prefix}/estop")
 
         if self._loop:
             self._loop.call_soon_threadsafe(self._connected.set)
@@ -123,6 +127,9 @@ class MqttBridge:
     ) -> None:
         """Route incoming messages to the appropriate handler."""
         parts = msg.topic.split("/")
+        if len(parts) == 2 and parts[1] == "estop":
+            self._route_estop(None, msg)
+            return
         if len(parts) < 3:
             return
 
@@ -136,8 +143,24 @@ class MqttBridge:
                 self._handle_telemetry(device_id, msg.payload)
             elif subtopic == "status":
                 self._handle_status(device_id, msg.payload)
+            elif subtopic == "estop":
+                self._route_estop(device_id, msg)
         except Exception:
             logger.exception("Error handling message on %s", msg.topic)
+
+    def _route_estop(self, device_id: str | None, msg: mqtt.MQTTMessage) -> None:
+        """Hand an e-stop message to the safety adapter. Never raises."""
+        try:
+            if self.on_estop:
+                self.on_estop(device_id, bytes(msg.payload), bool(msg.retain))
+        except Exception:
+            logger.exception("Error handling e-stop on %s", msg.topic)
+
+    def publish_nowait(self, topic: str, payload: str, retain: bool = False, qos: int = 1) -> bool:
+        """Queue a publish on paho's network thread (does not wait for the broker)."""
+        if not self._client:
+            return False
+        return bool(self._client.publish(topic, payload, qos=qos, retain=retain).rc == 0)
 
     def _handle_td(self, device_id: str, payload: bytes) -> None:
         """Store raw Thing Description dict for a device."""
