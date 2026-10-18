@@ -7,57 +7,41 @@ MUST pass through this module before reaching the MQTT bridge.
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from thingwire.safety_codes import DecisionCode, SafetyError
+from thingwire.safety_guards import SafetyGuards
 from thingwire.safety_motion import AxisLimit, Decision, MotionGuard, extract_limits
+from thingwire.safety_ratelimit import RateLimiterBook, RateLimitWindow
+from thingwire.safety_status import SafetyTransition
+
+__all__ = ["RateLimitWindow", "SafetyError", "SafetyLayer"]
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class RateLimitWindow:
-    """Sliding window rate limiter for a single action."""
-
-    max_calls: int
-    window_seconds: float
-    timestamps: list[float] = field(default_factory=list)
-    clock: Callable[[], float] = time.monotonic
-
-    def check(self) -> bool:
-        """Return True if action is within rate limit."""
-        now = self.clock()
-        # Prune old timestamps
-        self.timestamps = [t for t in self.timestamps if now - t < self.window_seconds]
-        return len(self.timestamps) < self.max_calls
-
-    def record(self) -> None:
-        """Record a call timestamp."""
-        self.timestamps.append(self.clock())
-
-
-class SafetyError(Exception):
-    """Raised when a safety check fails."""
-
-    def __init__(self, code: str, message: str) -> None:
-        self.code = code
-        self.message = message
-        super().__init__(message)
 
 
 class SafetyLayer:
     """Enforces safety policies for device commands."""
 
     def __init__(
-        self, config_path: str | None = None, clock: Callable[[], float] = time.monotonic
+        self,
+        config_path: str | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        *,
+        state_db_path: str | None = None,
+        wall_clock: Callable[[], datetime] | None = None,
+        id_factory: Callable[[], str] | None = None,
     ) -> None:
         self._clock = clock
         self._limits: dict[tuple[str, str], dict[str, AxisLimit]] = {}
         self._config: dict[str, Any] = {"devices": {}, "global": {}}
-        self._rate_limiters: dict[str, dict[str, RateLimitWindow]] = {}
+        self._rates = RateLimiterBook(clock)
+        self._rate_limiters = self._rates.limiters  # shared view
         self._last_heartbeat: dict[str, float] = {}
 
         if config_path and Path(config_path).exists():
@@ -66,6 +50,10 @@ class SafetyLayer:
             self._load_defaults()
         mode = str(self._config.get("global", {}).get("out_of_range", "reject")).lower()
         self._motion = MotionGuard(clock, "clamp" if mode == "clamp" else "reject")
+        extra: dict[str, Any] = {"id_factory": id_factory} if id_factory else {}
+        self.guards = SafetyGuards(
+            self._config.get("global", {}), clock, state_db_path, wall_clock, **extra
+        )
 
     def _load_config(self, config_path: str) -> None:
         """Load safety configuration from YAML."""
@@ -86,12 +74,24 @@ class SafetyLayer:
                 "deadman_switch_timeout_seconds": 300,
                 "audit_log_retention_days": 30,
                 "default_rate_limit": {"max_calls": 10, "window_seconds": 60},
+                "estop": {"authorized_resetters": ["operator"]},
+                "denial_flood": {
+                    "threshold": 20,
+                    "window_seconds": 60,
+                    "counted_codes": [
+                        "INVALID_INPUT",
+                        "OUT_OF_RANGE",
+                        "SLEW_EXCEEDED",
+                        "ACTION_NOT_ALLOWED",
+                    ],
+                },
             },
         }
         logger.info("Using default safety configuration")
 
     def register_device(self, device_id: str, td: dict[str, Any]) -> None:
         """Register a device and auto-generate safety rules from its TD."""
+        self.guards.known(device_id)
         if device_id in self._config.get("devices", {}):
             return  # Already configured explicitly
 
@@ -115,12 +115,7 @@ class SafetyLayer:
             "dangerous_actions": dangerous_actions,
             "rate_limits": {},
         }
-        logger.info(
-            "Auto-registered safety rules for device %s: %d allowed, %d dangerous",
-            device_id,
-            len(allowed_actions),
-            len(dangerous_actions),
-        )
+        logger.info("Auto-registered safety rules for device %s", device_id)
 
     def check_permission(self, device_id: str, action: str) -> None:
         """Check if action is allowed for device. Raises SafetyError if not."""
@@ -152,26 +147,13 @@ class SafetyLayer:
         if not rate_config:
             return  # No rate limit configured
 
-        # Get or create rate limiter
-        if device_id not in self._rate_limiters:
-            self._rate_limiters[device_id] = {}
-
-        if action not in self._rate_limiters[device_id]:
-            self._rate_limiters[device_id][action] = RateLimitWindow(
-                max_calls=rate_config["max_calls"],
-                window_seconds=rate_config["window_seconds"],
-                clock=self._clock,
-            )
-
-        limiter = self._rate_limiters[device_id][action]
-        if not limiter.check():
+        limiter = self._rates.check_and_record(device_id, action, rate_config)
+        if limiter:
             raise SafetyError(
-                "RATE_LIMIT_EXCEEDED",
+                DecisionCode.RATE_LIMIT_EXCEEDED,
                 f"Rate limit exceeded for '{action}' on device '{device_id}'. "
                 f"Max {limiter.max_calls} calls per {limiter.window_seconds}s",
             )
-
-        limiter.record()
 
     def is_dangerous(self, device_id: str, action: str) -> bool:
         """Check if an action is tagged as dangerous."""
@@ -223,20 +205,32 @@ class SafetyLayer:
 
     def prune_rate_limiters(self) -> int:
         """Remove expired rate limit windows to prevent memory leak. Returns pruned count."""
-        pruned = 0
-        now = self._clock()
-        for device_id in list(self._rate_limiters):
-            for action in list(self._rate_limiters[device_id]):
-                limiter = self._rate_limiters[device_id][action]
-                limiter.timestamps = [
-                    t for t in limiter.timestamps if now - t < limiter.window_seconds
-                ]
-                if not limiter.timestamps:
-                    del self._rate_limiters[device_id][action]
-                    pruned += 1
-            if not self._rate_limiters[device_id]:
-                del self._rate_limiters[device_id]
-        return pruned
+        return self._rates.prune()
+
+    def add_transition_listener(self, listener: Callable[[SafetyTransition], None]) -> None:
+        """Subscribe to safety state transitions (must not block)."""
+        self.guards.add_listener(listener)
+
+    def trip_estop(self, device_id: str | None, reason: str, source: str = "api") -> bool:
+        """Latch an e-stop for a device (None = global). True if newly latched."""
+        return self.guards.trip(device_id, reason, source) is not None
+
+    def reset_estop(self, device_id: str | None, reason: str, who: str) -> bool:
+        """Authorized reset. Raises SafetyError if refused. True if a latch was cleared."""
+        return self.guards.reset(device_id, reason, who) is not None
+
+    def estop_latched(self, device_id: str) -> bool:
+        """True if the device (or global scope) is latched."""
+        return self.guards.latch.latched_for(device_id) is not None
+
+    def sweep_deadman(self) -> None:
+        """Trip e-stop for every device whose heartbeat expired, then refresh statuses."""
+        for device_id in list(self._last_heartbeat):
+            try:
+                self.check_deadman_switch(device_id)
+            except SafetyError as exc:
+                self.guards.trip(device_id, exc.message, "deadman", DecisionCode.DEADMAN_SWITCH)
+        self.guards.tick()
 
     def evaluate(
         self,
@@ -251,32 +245,45 @@ class SafetyLayer:
     ) -> Decision:
         """Run every check and return a structured Decision. Fails closed on any error.
 
-        Identity arguments are accepted for the audit trail (populated by the
-        identity layer); they do not alter the verdict here.
+        Identity arguments are accepted for the audit trail; they do not alter the verdict.
+        Every decision carries a trace_id in its details.
         """
+        trace = self.guards.new_trace()
         try:
-            return self._evaluate(device_id, action, params, approved)
+            verdict = self._evaluate(device_id, action, params, approved)
         except SafetyError as exc:
-            return Decision(False, exc.code, exc.message, {"agent_id": agent_id})
+            verdict = Decision(False, exc.code, exc.message, {"agent_id": agent_id})
         except Exception as exc:
             logger.exception("Safety check failed for %s/%s, denying", device_id, action)
-            return Decision(
+            verdict = Decision(
                 False,
-                "SAFETY_CHECK_ERROR",
+                DecisionCode.SAFETY_CHECK_ERROR,
                 "Safety check raised an error; command denied (fail closed)",
                 {"error": f"{type(exc).__name__}: {exc}"},
             )
+        try:
+            if not verdict.allowed:
+                self.guards.observe(device_id, action, verdict.code, trace)
+        except Exception:
+            logger.exception("Safety status update failed for %s", device_id)
+        return replace(verdict, details={**verdict.details, "trace_id": trace})
 
     def _evaluate(
         self, device_id: str, action: str, params: dict[str, Any], approved: bool
     ) -> Decision:
+        self.guards.check_estop(device_id, action)
+        self.guards.check_flood(device_id, action)
         self.check_permission(device_id, action)
-        self.check_deadman_switch(device_id)
+        try:
+            self.check_deadman_switch(device_id)
+        except SafetyError as exc:
+            self.guards.trip(device_id, exc.message, "deadman", DecisionCode.DEADMAN_SWITCH)
+            raise
         required = self._config.get("global", {}).get("require_confirmation_for_dangerous", True)
         if required and self.is_dangerous(device_id, action) and not approved:
             return Decision(
                 False,
-                "APPROVAL_REQUIRED",
+                DecisionCode.APPROVAL_REQUIRED,
                 self.require_confirmation(action, params),
                 {"action": action},
             )
