@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ThingWire Desk Bot Viewer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>Desk Bot</h1>
+  <p id="conn" class="muted">connecting...</p>
+  <div id="head" class="head">
+    <div class="oled"><canvas id="eyes" width="256" height="128"></canvas></div>
+  </div>
+  <dl>
+    <dt>pan</dt><dd id="pan">0.0</dd>
+    <dt>tilt</dt><dd id="tilt">0.0</dd>
+    <dt>expression</dt><dd id="expr">neutral</dd>
+    <dt>person</dt><dd id="person">no</dd>
+  </dl>
+  <p class="muted">Options: ?device=deskbot-001&amp;ws=ws://localhost:9001</p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js"></script>
+<script src="eyes.js"></script>
+</body>
+</html>
