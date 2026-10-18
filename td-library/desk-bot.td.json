@@ -1,0 +1,235 @@
+{
+  "@context": "https://www.w3.org/2019/wot/td/v1.1",
+  "@type": "Thing",
+  "id": "urn:thingwire:device:{device_id}",
+  "title": "Desk Bot",
+  "description": "Desk robot with a two-axis head (pan/tilt), OLED eyes and a presence sensor",
+  "securityDefinitions": {
+    "nosec_sc": {
+      "scheme": "nosec"
+    }
+  },
+  "security": [
+    "nosec_sc"
+  ],
+  "properties": {
+    "head_pan": {
+      "type": "number",
+      "unit": "degrees",
+      "minimum": -90,
+      "maximum": 90,
+      "maxSlewDegPerSec": 90,
+      "readOnly": true,
+      "description": "Current head pan angle, -90 (left) to 90 (right)",
+      "forms": [
+        {
+          "href": "mqtt://{broker}/thingwire/{device_id}/telemetry",
+          "op": "observeproperty"
+        }
+      ]
+    },
+    "head_tilt": {
+      "type": "number",
+      "unit": "degrees",
+      "minimum": -30,
+      "maximum": 30,
+      "maxSlewDegPerSec": 90,
+      "readOnly": true,
+      "description": "Current head tilt angle, -30 (down) to 30 (up)",
+      "forms": [
+        {
+          "href": "mqtt://{broker}/thingwire/{device_id}/telemetry",
+          "op": "observeproperty"
+        }
+      ]
+    },
+    "expression": {
+      "type": "string",
+      "enum": [
+        "neutral",
+        "happy",
+        "curious",
+        "sleepy",
+        "surprised",
+        "alert"
+      ],
+      "readOnly": true,
+      "description": "Current eye expression",
+      "forms": [
+        {
+          "href": "mqtt://{broker}/thingwire/{device_id}/telemetry",
+          "op": "observeproperty"
+        }
+      ]
+    },
+    "person_detected": {
+      "type": "boolean",
+      "readOnly": true,
+      "description": "True when a person is in front of the bot",
+      "forms": [
+        {
+          "href": "mqtt://{broker}/thingwire/{device_id}/telemetry",
+          "op": "observeproperty"
+        }
+      ]
+    }
+  },
+  "actions": {
+    "look_at": {
+      "title": "Look at",
+      "description": "Turn the head to a pan/tilt angle. Motion is slew limited.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "pan": {
+            "type": "number",
+            "description": "Pan in degrees, -90 to 90",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "tilt": {
+            "type": "number",
+            "description": "Tilt in degrees, -30 to 30",
+            "minimum": -30,
+            "maximum": 30
+          }
+        },
+        "required": [
+          "pan",
+          "tilt"
+        ]
+      },
+      "safe": true,
+      "idempotent": true,
+      "forms": [
+        {
+          "href": "mqtt://{broker}/thingwire/{device_id}/command",
+          "op": "invokeaction"
+        }
+      ]
+    },
+    "set_expression": {
+      "title": "Set expression",
+      "description": "Change the OLED eye expression.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string",
+            "description": "One of neutral, happy, curious, sleepy, surprised, alert",
+            "enum": [
+              "neutral",
+              "happy",
+              "curious",
+              "sleepy",
+              "surprised",
+              "alert"
+            ]
+          }
+        },
+        "required": [
+          "expression"
+        ]
+      },
+      "safe": true,
+      "idempotent": true,
+      "forms": [
+        {
+          "href": "mqtt://{broker}/thingwire/{device_id}/command",
+          "op": "invokeaction"
+        }
+      ]
+    },
+    "nod": {
+      "title": "Nod",
+      "description": "Nod the head up and down 1 to 3 times.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "times": {
+            "type": "number",
+            "description": "Number of nods, 1 to 3",
+            "minimum": 1,
+            "maximum": 3
+          }
+        },
+        "required": [
+          "times"
+        ]
+      },
+      "safe": true,
+      "idempotent": false,
+      "forms": [
+        {
+          "href": "mqtt://{broker}/thingwire/{device_id}/command",
+          "op": "invokeaction"
+        }
+      ]
+    },
+    "sweep": {
+      "title": "Sweep head",
+      "description": "Continuously sweep the head left and right until another motion command arrives. Physical motion that needs human approval.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "speed_deg_s": {
+            "type": "number",
+            "description": "Sweep speed in degrees per second, 10 to 120",
+            "minimum": 10,
+            "maximum": 120
+          }
+        },
+        "required": [
+          "speed_deg_s"
+        ]
+      },
+      "safe": false,
+      "idempotent": true,
+      "forms": [
+        {
+          "href": "mqtt://{broker}/thingwire/{device_id}/command",
+          "op": "invokeaction"
+        }
+      ]
+    }
+  },
+  "events": {
+    "wake_word": {
+      "description": "Wake word heard (ESP-SR, stretch goal)",
+      "data": {
+        "type": "object",
+        "properties": {
+          "phrase": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          }
+        }
+      },
+      "forms": [
+        {
+          "href": "mqtt://{broker}/thingwire/{device_id}/event",
+          "op": "subscribeevent"
+        }
+      ]
+    },
+    "person_seen": {
+      "description": "A person came into view",
+      "data": {
+        "type": "object",
+        "properties": {
+          "confidence": {
+            "type": "number"
+          }
+        }
+      },
+      "forms": [
+        {
+          "href": "mqtt://{broker}/thingwire/{device_id}/event",
+          "op": "subscribeevent"
+        }
+      ]
+    }
+  }
+}
