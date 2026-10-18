@@ -420,3 +420,18 @@ def firmware_config(yaml_file: str, output: str | None) -> None:
     click.echo(f"  Device: {cfg.get('device_id', 'thingwire-demo-001')}")
     click.echo(f"  Broker: {mqtt.get('broker', '192.168.1.100')}:{mqtt.get('port', 1883)}")
     click.echo(f"\nFlash with: cd firmware && pio run --target upload")
+
+
+@main.command()
+@click.argument("mcap_file", type=click.Path(exists=True, dir_okay=False))
+@click.option("--safety-config", default=None, type=click.Path(exists=True), help="Safety YAML")
+def replay(mcap_file: str, safety_config: str | None) -> None:
+    """Replay recorded tool calls through the safety layer and diff decisions."""
+    from thingwire.recorder import replay as run_replay
+
+    result = run_replay(mcap_file, safety_config)
+    click.echo(f"Replayed {len(result.decisions)} tool calls, {len(result.diffs)} differences")
+    for d in result.diffs:
+        click.echo(f"  call {d['call_seq']}: recorded={d['recorded']} replayed={d['replayed']}")
+    if result.diffs:
+        sys.exit(1)
