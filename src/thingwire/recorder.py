@@ -11,8 +11,7 @@ import logging
 import queue
 import threading
 import time
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
@@ -20,7 +19,8 @@ from typing import IO, Any
 from mcap.reader import make_reader
 from mcap.writer import Writer
 
-from thingwire.safety import SafetyError, SafetyLayer
+from thingwire.safety import SafetyLayer
+from thingwire.safety_motion import Decision
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,16 @@ _NUM = {"type": "number"}
 SCHEMAS: dict[str, dict[str, Any]] = {
     "tool_call": {
         "type": "object",
-        "properties": {"seq": _NUM, "device_id": _STR, "action": _STR, "params": _OBJ},
+        "properties": {
+            "seq": _NUM,
+            "device_id": _STR,
+            "action": _STR,
+            "params": _OBJ,
+            "approved": {"type": "boolean"},
+            "agent_id": _STR,
+            "delegation_chain": {"type": "array", "items": _STR},
+            "scopes": {"type": "array", "items": _STR},
+        },
     },
     "decision": {
         "type": "object",
@@ -41,6 +50,9 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "allowed": {"type": "boolean"},
             "code": _STR,
             "message": _STR,
+            "agent_id": _STR,
+            "delegation_chain": {"type": "array", "items": _STR},
+            "scopes": {"type": "array", "items": _STR},
         },
     },
     "telemetry": {
@@ -50,6 +62,20 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     "td": {"type": "object", "properties": {"device_id": _STR, "td": _OBJ}},
 }
 _STOP = object()
+
+
+def _put_identity(
+    payload: dict[str, Any],
+    agent_id: str | None,
+    delegation_chain: list[str] | None,
+    scopes: list[str] | None,
+) -> None:
+    if agent_id is not None:
+        payload["agent_id"] = agent_id
+    if delegation_chain is not None:
+        payload["delegation_chain"] = delegation_chain
+    if scopes is not None:
+        payload["scopes"] = scopes
 
 
 class Recorder:
@@ -85,14 +111,30 @@ class Recorder:
         self._thread = threading.Thread(target=self._drain, name="tw-recorder", daemon=True)
         self._thread.start()
 
-    def record_tool_call(self, device_id: str, action: str, params: dict[str, Any]) -> int:
+    def record_tool_call(
+        self,
+        device_id: str,
+        action: str,
+        params: dict[str, Any],
+        *,
+        approved: bool = False,
+        agent_id: str | None = None,
+        delegation_chain: list[str] | None = None,
+        scopes: list[str] | None = None,
+    ) -> int:
         """Record a tool call; returns its sequence number (use for decisions)."""
         with self._lock:
             seq = self._seq["tool_call"]
             self._seq["tool_call"] += 1
-        self._enqueue(
-            "tool_call", {"seq": seq, "device_id": device_id, "action": action, "params": params}
-        )
+        payload: dict[str, Any] = {
+            "seq": seq,
+            "device_id": device_id,
+            "action": action,
+            "params": params,
+            "approved": approved,
+        }
+        _put_identity(payload, agent_id, delegation_chain, scopes)
+        self._enqueue("tool_call", payload)
         return seq
 
     def record_decision(
@@ -100,21 +142,22 @@ class Recorder:
         call_seq: int,
         device_id: str,
         action: str,
-        allowed: bool,
-        code: str = "",
-        message: str = "",
+        decision: Decision,
+        *,
+        agent_id: str | None = None,
+        delegation_chain: list[str] | None = None,
+        scopes: list[str] | None = None,
     ) -> None:
-        self._enqueue(
-            "decision",
-            {
-                "call_seq": call_seq,
-                "device_id": device_id,
-                "action": action,
-                "allowed": allowed,
-                "code": code,
-                "message": message,
-            },
-        )
+        payload: dict[str, Any] = {
+            "call_seq": call_seq,
+            "device_id": device_id,
+            "action": action,
+            "allowed": decision.allowed,
+            "code": decision.code,
+            "message": decision.message,
+        }
+        _put_identity(payload, agent_id, delegation_chain, scopes)
+        self._enqueue("decision", payload)
 
     def record_telemetry(self, device_id: str, readings: dict[str, Any]) -> None:
         self._enqueue("telemetry", {"device_id": device_id, "readings": readings})
@@ -188,12 +231,12 @@ def read_recording(path: str | Path) -> list[Event]:
 
 
 class FakeClock:
-    """Injected clock replacing time.monotonic inside the safety layer."""
+    """Injected clock handed to SafetyLayer; advanced from recorded timestamps."""
 
     def __init__(self) -> None:
-        self.now = 0.0
+        self.now = 1000.0
 
-    def monotonic(self) -> float:
+    def __call__(self) -> float:
         return self.now
 
 
@@ -205,37 +248,6 @@ class FakeDevice:
 
     def send(self, device_id: str, action: str, params: dict[str, Any]) -> None:
         self.commands.append((device_id, action, params))
-
-
-@contextmanager
-def _patched_clock(clock: FakeClock) -> Iterator[None]:
-    """Swap safety.time for a shim exposing the fake monotonic clock."""
-    import thingwire.safety as safety_mod
-
-    class _Shim:
-        monotonic = staticmethod(clock.monotonic)
-
-    ns: dict[str, Any] = vars(safety_mod)
-    original = ns["time"]
-    ns["time"] = _Shim
-    try:
-        yield
-    finally:
-        ns["time"] = original
-
-
-def decide(safety: SafetyLayer, device_id: str, action: str) -> tuple[bool, str, str]:
-    """Adapter over today's safety.py (raises SafetyError) -> (allowed, code, message).
-
-    Swap this body once W2 returns structured decisions with reason codes.
-    """
-    try:
-        safety.check_permission(device_id, action)
-        safety.check_rate_limit(device_id, action)
-        safety.check_deadman_switch(device_id)
-    except SafetyError as e:
-        return False, e.code, e.message
-    return True, "", ""
 
 
 @dataclass
@@ -252,20 +264,25 @@ def replay(path: str | Path, safety_config: str | None = None) -> ReplayResult:
     result = ReplayResult()
     clock = FakeClock()
     t0 = events[0].log_time if events else 0
-    safety = SafetyLayer(safety_config)
-    with _patched_clock(clock):
-        for e in events:
-            clock.now = 1000.0 + (e.log_time - t0) / 1e9
-            if e.channel == "td":
-                safety.register_device(e.data["device_id"], e.data["td"])
-            elif e.channel == "telemetry":
-                safety.update_heartbeat_from_telemetry(e.data["device_id"], clock.now)
-            elif e.channel == "tool_call":
-                d = e.data
-                allowed, code, _ = decide(safety, d["device_id"], d["action"])
-                result.decisions[d["seq"]] = {"allowed": allowed, "code": code}
-                if allowed:
-                    result.device.send(d["device_id"], d["action"], d["params"])
+    safety = SafetyLayer(safety_config, clock=clock)
+    for e in events:
+        clock.now = 1000.0 + (e.log_time - t0) / 1e9
+        if e.channel == "td":
+            safety.register_device(e.data["device_id"], e.data["td"])
+        elif e.channel == "tool_call":
+            d = e.data
+            decision = safety.evaluate(
+                d["device_id"],
+                d["action"],
+                d["params"],
+                approved=d.get("approved", False),
+                agent_id=d.get("agent_id"),
+                delegation_chain=d.get("delegation_chain"),
+                scopes=d.get("scopes"),
+            )
+            result.decisions[d["seq"]] = {"allowed": decision.allowed, "code": decision.code}
+            if decision.allowed:
+                result.device.send(d["device_id"], d["action"], decision.params)
     for seq, new in sorted(result.decisions.items()):
         old = recorded.get(seq)
         if old is None or (old["allowed"], old["code"]) != (new["allowed"], new["code"]):
