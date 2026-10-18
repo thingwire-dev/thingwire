@@ -1,16 +1,24 @@
-## Summary
+<!-- Target: your PR goes into release/<name>, never main. Only the release PR targets main. -->
 
-<!-- What changed and why. Link to related issues if applicable. -->
+## What and why
 
-## Test plan
+## Contract changes
+<!-- Edits to docs/contracts.md (TD schema, MQTT topics, scopes, audit columns, Decision codes)? Link the contract PR that landed first, or write "none". -->
 
-<!-- How to verify this works. -->
+## Files touched vs ownership
+<!-- Branch: ____ . Any shared file (see .agents/ownership.yaml)? Say which and link the request approved by the owner, or write "none". -->
 
-- [ ] Describe how you tested this change
+## Test evidence
+<!-- Paste the output of `make verify` (or the command and result). -->
+
+## Safety impact
+<!-- Does this touch the safety layer, identity, actuators or firmware limits? Does anything fail open? Write "none" only if true. -->
+
+## Rollback
+<!-- How to undo: revert this squash commit, or any extra steps (config, firmware reflash). -->
 
 ## Checklist
-
-- [ ] Tests pass (`pytest tests/ -v`)
-- [ ] Lint passes (`ruff check src/`)
-- [ ] Format passes (`ruff format --check src/ tests/`)
-- [ ] Documentation updated (if user-facing behavior changed)
+- [ ] `make verify` is green
+- [ ] No em or en dashes
+- [ ] Commits are `<type>: <description>` with no co-author or AI-attribution lines
+- [ ] Branch is not main or a release branch, PR base is the release branch
