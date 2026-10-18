@@ -34,3 +34,6 @@ CLAUDE.md
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated broker ACL/credentials (plaintext passwords)
+docker/acl/
