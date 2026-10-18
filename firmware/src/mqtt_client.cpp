@@ -68,7 +68,7 @@ void init(CommandCallback onCommand) {
     _buildTopics();
     _mqtt.setServer(WiFiManager::getMqttBroker(), WiFiManager::getMqttPort());
     _mqtt.setCallback(_mqttCallback);
-    _mqtt.setBufferSize(1024);
+    _mqtt.setBufferSize(MQTT_BUFFER_SIZE);
     Serial.println("[MQTT] Client initialized");
 }
 
@@ -96,6 +96,14 @@ bool isConnected() {
 void publishTelemetry(const char* json) {
     if (_mqtt.connected()) {
         _mqtt.publish(_topicTelemetry, json);
+    }
+}
+
+void publishEvent(const char* json) {
+    if (_mqtt.connected()) {
+        char topic[TOPIC_BUF_SIZE];
+        snprintf(topic, TOPIC_BUF_SIZE, "thingwire/%s/event", DEVICE_ID);
+        _mqtt.publish(topic, json);
     }
 }
 

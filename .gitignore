@@ -13,7 +13,8 @@ dist/
 .pytest_cache/
 
 # Data
-data/*.db
+data/
+*.mcap
 
 # Config
 .env
@@ -24,6 +25,7 @@ docs-local/
 repo-ref/
 phases/
 CLAUDE.md
+.claude/worktrees/
 
 # IDE
 .vscode/
@@ -32,3 +34,6 @@ CLAUDE.md
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated broker ACL/credentials (plaintext passwords)
+docker/acl/

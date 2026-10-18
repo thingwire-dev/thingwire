@@ -513,3 +513,18 @@ def approve(approval_id: str, deny: bool, auth_url: str, admin_token: str) -> No
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     click.echo(f"{res.get('status', 'done')}: {res.get('action', '')} {res.get('resource', '')}")
+
+
+@main.command()
+@click.argument("mcap_file", type=click.Path(exists=True, dir_okay=False))
+@click.option("--safety-config", default=None, type=click.Path(exists=True), help="Safety YAML")
+def replay(mcap_file: str, safety_config: str | None) -> None:
+    """Replay recorded tool calls through the safety layer and diff decisions."""
+    from thingwire.recorder import replay as run_replay
+
+    result = run_replay(mcap_file, safety_config)
+    click.echo(f"Replayed {len(result.decisions)} tool calls, {len(result.diffs)} differences")
+    for d in result.diffs:
+        click.echo(f"  call {d['call_seq']}: recorded={d['recorded']} replayed={d['replayed']}")
+    if result.diffs:
+        sys.exit(1)

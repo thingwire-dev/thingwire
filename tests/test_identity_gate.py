@@ -212,10 +212,8 @@ class TestSettingsAndScopes:
         assert not valid_name(bad)
 
 
-class TestAuditFallback:
-    async def test_audit_falls_back_to_result_until_columns_exist(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+class TestAuditColumns:
+    async def test_identity_lands_in_audit_columns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         audit = AuditLog(":memory:")
         await audit.initialize()
         v = gatekeeper(FakeAuth([GRANTED])).check_scope(ident(), DEV, "sweep", True)
@@ -228,10 +226,8 @@ class TestAuditFallback:
             params={},
             result={"error": "DENIED"},
         )
-        stored = (await audit.get_recent())[0]["result"]
-        assert (
-            stored["identity"]["agent_id"] == AGENT
-            and stored["identity"]["reason"] == "missing scope"
-        )
-        assert stored["identity"]["decision"] == "deny" and stored["identity"]["scopes"] == ["s1"]
+        row = (await audit.get_recent())[0]
+        assert row["agent_id"] == AGENT and row["reason"] == "missing scope"
+        assert row["decision"] == "deny" and row["scopes"] == ["s1"]
+        assert row["delegation_chain"] == [f"agent:{AGENT}"]
         await audit.close()

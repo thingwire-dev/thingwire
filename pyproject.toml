@@ -19,6 +19,7 @@ dependencies = [
     "uvicorn>=0.34.0",
     "click>=8.1.0",
     "pyjwt[crypto]>=2.10.1",
+    "mcap>=1.2.0",
 ]
 
 [project.optional-dependencies]
