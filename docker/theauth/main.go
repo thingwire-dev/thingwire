@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -42,17 +43,18 @@ func main() {
 }
 
 // config holds every setting. There are no insecure defaults for secrets: the encryption key and
-// the admin token must be supplied.
+// the two API tokens must be supplied and must differ.
 type config struct {
 	addr, issuer, resource, dbPath string
 	scopes                         []string
 	encryptionKey                  []byte
-	adminToken                     string
+	gatewayToken, operatorToken    string
+	maxPending                     int
 	approvalTTL                    time.Duration
 	tokenTTL                       time.Duration
 }
 
-const minAdminTokenLen = 24
+const minTokenLen = 24
 
 func loadConfig(get func(string) string) (config, error) {
 	env := func(k, def string) string {
@@ -62,11 +64,12 @@ func loadConfig(get func(string) string) (config, error) {
 		return def
 	}
 	c := config{
-		addr:       env("THEAUTH_ADDR", ":9200"),
-		issuer:     strings.TrimRight(env("THEAUTH_ISSUER", "http://localhost:9200"), "/"),
-		resource:   env("THEAUTH_RESOURCE", "http://localhost:8000/mcp"),
-		dbPath:     env("THEAUTH_DB_PATH", "/data/theauth.db"),
-		adminToken: get("THEAUTH_ADMIN_TOKEN"),
+		addr:          env("THEAUTH_ADDR", ":9200"),
+		issuer:        strings.TrimRight(env("THEAUTH_ISSUER", "http://localhost:9200"), "/"),
+		resource:      env("THEAUTH_RESOURCE", "http://localhost:8000/mcp"),
+		dbPath:        env("THEAUTH_DB_PATH", "/data/theauth.db"),
+		gatewayToken:  get("THEAUTH_GATEWAY_TOKEN"),
+		operatorToken: get("THEAUTH_OPERATOR_TOKEN"),
 		scopes: splitList(env("THEAUTH_SCOPES", strings.Join([]string{
 			"device:thingwire-demo-001:read",
 			"device:thingwire-demo-001:act:setRelay",
@@ -88,8 +91,14 @@ func loadConfig(get func(string) string) (config, error) {
 	if c.encryptionKey, err = decodeKey(get("THEAUTH_ENCRYPTION_KEY")); err != nil {
 		return c, err
 	}
-	if len(c.adminToken) < minAdminTokenLen {
-		return c, errors.New("THEAUTH_ADMIN_TOKEN must be set to at least 24 characters")
+	if len(c.gatewayToken) < minTokenLen || len(c.operatorToken) < minTokenLen {
+		return c, errors.New("THEAUTH_GATEWAY_TOKEN and THEAUTH_OPERATOR_TOKEN must each be at least 24 characters")
+	}
+	if c.gatewayToken == c.operatorToken {
+		return c, errors.New("THEAUTH_GATEWAY_TOKEN and THEAUTH_OPERATOR_TOKEN must differ")
+	}
+	if c.maxPending, err = strconv.Atoi(env("THEAUTH_MAX_PENDING", "3")); err != nil || c.maxPending < 1 {
+		return c, errors.New("THEAUTH_MAX_PENDING must be a positive integer")
 	}
 	return c, nil
 }

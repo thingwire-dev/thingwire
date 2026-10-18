@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/glincker/theauth-go/v2"
 	"github.com/glincker/theauth-go/v2/policy"
@@ -15,19 +17,33 @@ import (
 
 const maxBody = 64 << 10
 
-// authenticate accepts only the operator bearer token, compared in constant time. An empty or
-// malformed header never authenticates.
-func (s *service) authenticate(r *http.Request) (string, error) {
+func bearerIs(r *http.Request, want string) bool {
 	got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok || got == "" || subtle.ConstantTimeCompare([]byte(got), []byte(s.cfg.adminToken)) != 1 {
+	return ok && got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
+// authenticate accepts only the operator token (agent creation and the approvals inbox). The
+// gateway token never satisfies it, so a compromised gateway cannot approve its own requests.
+func (s *service) authenticate(r *http.Request) (string, error) {
+	if !bearerIs(r, s.cfg.operatorToken) {
 		return "", errors.New("unauthenticated")
 	}
 	return operatorID, nil
 }
 
-func (s *service) admin(next http.HandlerFunc) http.HandlerFunc {
+// operator guards endpoints only a human operator may call.
+func (s *service) operator(next http.HandlerFunc) http.HandlerFunc {
+	return s.guard(func(r *http.Request) bool { return bearerIs(r, s.cfg.operatorToken) }, next)
+}
+
+// gateway guards the endpoints the gateway uses: open and spend approvals, nothing else.
+func (s *service) gateway(next http.HandlerFunc) http.HandlerFunc {
+	return s.guard(func(r *http.Request) bool { return bearerIs(r, s.cfg.gatewayToken) }, next)
+}
+
+func (s *service) guard(ok func(*http.Request) bool, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, err := s.authenticate(r); err != nil {
+		if !ok(r) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
 			return
 		}
@@ -38,9 +54,9 @@ func (s *service) admin(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *service) routes(oauth, inbox http.Handler) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /thingwire/agents", s.admin(s.createAgent))
-	mux.HandleFunc("POST /thingwire/approvals", s.admin(s.openApproval))
-	mux.HandleFunc("POST /thingwire/approvals/{id}/spend", s.admin(s.spendApproval))
+	mux.HandleFunc("POST /thingwire/agents", s.operator(s.createAgent))
+	mux.HandleFunc("POST /thingwire/approvals", s.gateway(s.openApproval))
+	mux.HandleFunc("POST /thingwire/approvals/{id}/spend", s.gateway(s.spendApproval))
 	mux.Handle("/approvals", inbox)
 	mux.Handle("/approvals/", inbox)
 	mux.Handle("/", oauth)
@@ -108,6 +124,14 @@ func (s *service) openApproval(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agent_id, device_id and action are required"})
 		return
 	}
+	if n, err := s.pendingFor(r.Context(), in.AgentID); err != nil || n >= s.cfg.maxPending {
+		code := http.StatusTooManyRequests
+		if err != nil {
+			code = http.StatusInternalServerError
+		}
+		writeJSON(w, code, map[string]string{"error": "approval limit", "code": "approval_limit"})
+		return
+	}
 	reason := in.Reason
 	if reason == "" {
 		reason = "dangerous action " + in.Action + " on " + in.DeviceID
@@ -138,4 +162,20 @@ func (s *service) spendApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"code": string(code), "proceed": code == policy.CodeApprovalConsumed})
+}
+
+// pendingFor counts undecided, unexpired approvals the agent already has open.
+func (s *service) pendingFor(ctx context.Context, agentID string) (int, error) {
+	list, err := s.store.ListToolApprovals(ctx, 100)
+	if err != nil {
+		return 0, err
+	}
+	now, n := time.Now(), 0
+	for _, a := range list {
+		undecided := a.ApprovedAt.IsZero() && a.DeniedAt.IsZero() && a.ConsumedAt.IsZero() && a.ExpiredAt.IsZero()
+		if a.AgentID == agentID && undecided && (a.ExpiresAt.IsZero() || a.ExpiresAt.After(now)) {
+			n++
+		}
+	}
+	return n, nil
 }

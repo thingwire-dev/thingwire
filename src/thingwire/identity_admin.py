@@ -38,7 +38,7 @@ def create_agent(client: TheAuthClient, name: str, scopes: list[str]) -> dict[st
     """Register a demo agent limited to the given scopes."""
     status, body = client.request("POST", "/thingwire/agents", {"name": name, "scopes": scopes})
     if status == 401:
-        raise IdentityError("admin token rejected")
+        raise IdentityError("operator token rejected")
     if status != 201 or "client_secret" not in body:
         raise IdentityError(f"agent creation failed (HTTP {status})")
     return body
@@ -82,7 +82,7 @@ def decide_approval(client: TheAuthClient, approval_id: str, approve: bool) -> d
     verb = "approve" if approve else "deny"
     status, body = client.request("POST", f"/approvals/{approval_id}/{verb}")
     if status in (401, 403):
-        raise IdentityError("admin token rejected")
+        raise IdentityError("operator token rejected")
     if status == 404:
         raise IdentityError("no such approval")
     if status == 409:
@@ -90,3 +90,13 @@ def decide_approval(client: TheAuthClient, approval_id: str, approve: bool) -> d
     if status != 200:
         raise IdentityError(f"{verb} failed (HTTP {status})")
     return body
+
+
+def pending_approvals(client: TheAuthClient) -> list[dict[str, Any]]:
+    """List pending approvals from the operator inbox."""
+    status, body = client.request("GET", "/approvals?status=pending")
+    if status in (401, 403):
+        raise IdentityError("operator token rejected")
+    if status != 200:
+        raise IdentityError(f"list failed (HTTP {status})")
+    return [a for a in body.get("approvals", []) if isinstance(a, dict)]

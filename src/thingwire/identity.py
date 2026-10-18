@@ -8,6 +8,7 @@ never reach signature checking.
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 import urllib.request
@@ -27,6 +28,8 @@ ALLOWED_ALG = "EdDSA"
 ALLOWED_TYP = {"at+jwt", "application/at+jwt"}
 FORBIDDEN_HEADERS = {"jku", "jwk", "x5u", "x5c", "crit"}
 REQUIRED_CLAIMS = ["exp", "iat", "iss", "aud", "sub", "jti"]
+OPERATOR_ENV_VARS = ("THINGWIRE_OPERATOR_TOKEN", "THEAUTH_OPERATOR_TOKEN")
+RESERVED_ACTION = "dangerous"
 AGENT_PREFIX = "agent:"
 DEVICE_URN_PREFIX = "urn:thingwire:device:"
 MAX_CHAIN_DEPTH = 3
@@ -61,10 +64,11 @@ class IdentitySettings(BaseSettings):
     audience: str = "http://localhost:8000/mcp"
     jwks_url: str = ""
     admin_url: str = ""
-    admin_token: str = ""
+    gateway_token: str = ""
+    max_pending_approvals: int = 3
     allow_http: bool = False
     leeway_seconds: int = 5
-    max_token_lifetime: int = 3600
+    max_token_lifetime: int = 900
     approval_timeout: float = 120.0
     approval_poll: float = 2.0
     host: str = "127.0.0.1"
@@ -75,10 +79,12 @@ class IdentitySettings(BaseSettings):
 
     def validate_complete(self) -> None:
         """Raise IdentityError unless HTTP transport can run safely."""
-        if not (self.issuer and self.audience and self.admin_token):
+        if not (self.issuer and self.audience and self.gateway_token):
             raise IdentityError(
-                "http transport needs THINGWIRE_AUTH_ISSUER, _AUDIENCE, _ADMIN_TOKEN"
+                "http transport needs THINGWIRE_AUTH_ISSUER, _AUDIENCE, _GATEWAY_TOKEN"
             )
+        if any(os.environ.get(v) for v in OPERATOR_ENV_VARS):
+            raise IdentityError("operator token must not be set in the gateway environment")
         for url in (self.issuer, self.jwks_url or self.issuer, self.admin_url or self.issuer):
             u = urlparse(url)
             local = (u.hostname or "") in LOOPBACK_HOSTS
@@ -116,15 +122,25 @@ def valid_name(name: str) -> bool:
 JwksFetcher = Callable[[], dict[str, Any]]
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+def no_redirect_opener() -> urllib.request.OpenerDirector:
+    """Opener that never follows redirects, so credentials cannot be forwarded elsewhere."""
+    return urllib.request.build_opener(_NoRedirect)
+
+
+def check_sse_host(host: str | None) -> None:
+    """SSE has no identity layer, so it may only bind to loopback."""
+    if (host or "") not in LOOPBACK_HOSTS:
+        raise IdentityError("sse has no identity checks; use --transport http (or a loopback host)")
+
+
 def fetch_jwks_http(url: str, timeout: float = 5.0) -> dict[str, Any]:
     """Fetch a JWKS document over HTTP(S). Redirects are not followed."""
-
-    class _NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *args: Any, **kwargs: Any) -> None:
-            return None
-
-    opener = urllib.request.build_opener(_NoRedirect)
-    with opener.open(url, timeout=timeout) as resp:
+    with no_redirect_opener().open(url, timeout=timeout) as resp:
         data = json.loads(resp.read(1 << 20))
     if not isinstance(data, dict):
         raise IdentityError("jwks is not an object")
@@ -152,15 +168,16 @@ class JwksKeys:
         """Return the public key for kid or raise IdentityError."""
         async with self._lock:
             age = time.monotonic() - self._fetched_at
-            if kid not in self._keys and (age > self._min_refresh or not self._keys):
+            miss = kid not in self._keys and (age > self._min_refresh or not self._keys)
+            if miss or age > self._ttl:
                 try:
                     await asyncio.to_thread(self._load)
                 except Exception as exc:
                     self._fetched_at = time.monotonic()
                     logger.warning("JWKS fetch failed: %s", type(exc).__name__)
-                    raise IdentityError("jwks unavailable") from exc
-            elif age > self._ttl:
-                self._keys = {}
+                    if miss or age > 2 * self._ttl:
+                        self._keys = {} if age > 2 * self._ttl else self._keys
+                        raise IdentityError("jwks unavailable") from exc
             key = self._keys.get(kid)
         if key is None:
             raise IdentityError("unknown signing key")
@@ -183,7 +200,8 @@ def _chain(claims: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
             raise IdentityError("bad actor chain")
         chain.append(act["sub"])
         act = act.get("act")
-    actor = chain[-1] if len(chain) > 1 else chain[0]
+    # theauth-go (chain.Prepend) puts the newest requesting actor at the top-level act
+    actor = chain[1] if len(chain) > 1 else chain[0]
     if not actor.startswith(AGENT_PREFIX) or not _ID_RE.fullmatch(actor[len(AGENT_PREFIX) :]):
         raise IdentityError("not an agent token")
     return actor[len(AGENT_PREFIX) :], tuple(chain)

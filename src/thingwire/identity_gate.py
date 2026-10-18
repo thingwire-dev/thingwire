@@ -5,7 +5,7 @@ Split from identity.py to keep each file under 300 lines. Every failure path den
 
 import asyncio
 import base64
-import inspect
+import hashlib
 import json
 import logging
 import urllib.error
@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 from fastmcp import FastMCP
 
 from thingwire.identity import (
+    RESERVED_ACTION,
     AgentIdentity,
     AgentTokenVerifier,
     IdentityError,
@@ -24,6 +25,7 @@ from thingwire.identity import (
     JwksKeys,
     device_key,
     fetch_jwks_http,
+    no_redirect_opener,
     scope_act,
     scope_dangerous,
     scope_read,
@@ -75,12 +77,12 @@ class TheAuthClient:
             headers["Authorization"] = "Basic " + base64.b64encode(basic.encode()).decode()
         req = urllib.request.Request(self._base + path, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            with no_redirect_opener().open(req, timeout=self._timeout) as resp:
                 return resp.status, json.loads(resp.read(1 << 20) or b"{}")
         except urllib.error.HTTPError as exc:
             try:
                 return exc.code, json.loads(exc.read(1 << 20) or b"{}")
-            except ValueError:
+            except (OSError, ValueError):
                 return exc.code, {}
         except (OSError, ValueError) as exc:
             raise IdentityError(f"identity service unreachable: {type(exc).__name__}") from exc
@@ -127,6 +129,7 @@ class Gatekeeper:
 
     def __init__(self, settings: IdentitySettings, client: TheAuthClient) -> None:
         self._s, self._client = settings, client
+        self._inflight: dict[str, int] = {}
 
     def check_read(self, ident: AgentIdentity | None, device_id: str) -> Verdict:
         """Reading a device needs device:<id>:read."""
@@ -147,6 +150,8 @@ class Gatekeeper:
             return deny("unauthenticated")
         if not (valid_name(device_id) and valid_name(action)):
             return deny("invalid device or action name")
+        if action == RESERVED_ACTION:
+            return deny("reserved action name")
         need = scope_act(device_id, action)
         if need in ident.scopes or (dangerous and scope_dangerous(device_id) in ident.scopes):
             return ALLOW
@@ -166,20 +171,36 @@ class Gatekeeper:
         params: dict[str, Any],
     ) -> Verdict:
         """Open an approval and wait for a human. Timeout, error or refusal all deny."""
+        n = self._inflight.get(ident.agent_id, 0)
+        if n >= self._s.max_pending_approvals:
+            return deny("too many pending approvals")
+        self._inflight[ident.agent_id] = n + 1
+        try:
+            return await self._wait(ident, device_id, action, params)
+        finally:
+            self._inflight[ident.agent_id] -= 1
+
+    async def _wait(
+        self, ident: AgentIdentity, device_id: str, action: str, params: dict[str, Any]
+    ) -> Verdict:
         body = self._client.call_body(ident, device_key(device_id), action, params)
         try:
             status, opened = await asyncio.to_thread(
                 self._client.request, "POST", "/thingwire/approvals", body
             )
             approval_id = opened.get("approval_id")
+            if status == 429:
+                return deny("too many pending approvals")
             if status != 201 or not isinstance(approval_id, str):
                 return deny("approval service error")
+            # The id is a credential for approving; only a short non-reusable ref is logged.
+            ref = hashlib.sha256(approval_id.encode()).hexdigest()[:8]
             logger.warning(
-                "Approval needed for %s on %s (agent %s). Run: thingwire approve %s",
+                "Approval pending: %s on %s (agent %s, ref %s). Run: thingwire approve --list",
                 action,
                 device_id,
                 ident.agent_id,
-                approval_id,
+                ref,
             )
             loop = asyncio.get_running_loop()
             deadline = loop.time() + self._s.approval_timeout
@@ -206,12 +227,7 @@ async def record_audit(
     verdict: Verdict | None,
     **fields: Any,
 ) -> None:
-    """Write an audit row, adding identity fields.
-
-    Integration point for the audit_log change: when AuditLog.record accepts the keyword
-    arguments agent_id, delegation_chain, scopes, decision and reason they are passed as is.
-    Until then they are folded into the stored result so no identity information is lost.
-    """
+    """Write an audit row with agent_id, delegation_chain, scopes, decision and reason."""
     if ident is None and verdict is None:
         await audit.record(**fields)
         return
@@ -222,17 +238,27 @@ async def record_audit(
         "decision": verdict.decision if verdict else None,
         "reason": verdict.reason if verdict else None,
     }
-    accepted = inspect.signature(audit.record).parameters
-    if all(k in accepted for k in extra):
-        await audit.record(**fields, **extra)
-        return
-    result = fields.get("result")
-    merged = (
-        {**result, "identity": extra}
-        if isinstance(result, dict)
-        else {"result": result, "identity": extra}
-    )
-    await audit.record(**{**fields, "result": merged})
+    await audit.record(**fields, **extra)
+
+
+def recheck_safety(safety: Any, bridge: Any, device_id: str, tool_name: str) -> Verdict | None:
+    """Re-run the non-mutating safety checks after an approval wait (state may have changed).
+
+    Returns a denial, or None when still safe. E-stop latch, permission, deadman and online
+    state are checked; rate limits were already consumed and are not charged twice.
+    """
+    try:
+        safety.update_heartbeat_from_telemetry(device_id, bridge.get_last_telemetry_time(device_id))
+        safety.guards.check_estop(device_id, tool_name)
+        safety.check_permission(device_id, tool_name)
+        safety.check_deadman_switch(device_id)
+        if not bridge.is_device_online(device_id):
+            return Verdict(False, "deny", "device offline after approval")
+    except Exception as exc:  # any failure, including SafetyError, denies
+        return Verdict(
+            False, "deny", f"safety recheck failed: {getattr(exc, 'code', type(exc).__name__)}"
+        )
+    return None
 
 
 class IdentityFastMCP(FastMCP):
@@ -259,6 +285,6 @@ def create_identity_server(name: str, settings: IdentitySettings) -> IdentityFas
     mcp = IdentityFastMCP(name, auth=AgentTokenVerifier(settings, keys))
     mcp.identity_settings = settings
     mcp.gate = Gatekeeper(
-        settings, TheAuthClient(settings.admin_url or settings.issuer, settings.admin_token)
+        settings, TheAuthClient(settings.admin_url or settings.issuer, settings.gateway_token)
     )
     return mcp

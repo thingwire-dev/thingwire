@@ -89,7 +89,7 @@ GRANTED = (200, {"code": "approval_consumed", "proceed": True})
 
 def gatekeeper(client: TheAuthClient, timeout: float = 1.0) -> Gatekeeper:
     s = IdentitySettings(
-        issuer=ISS, audience=AUD, admin_token="x", approval_timeout=timeout, approval_poll=0.01
+        issuer=ISS, audience=AUD, gateway_token="x", approval_timeout=timeout, approval_poll=0.01
     )
     return Gatekeeper(s, client)
 
@@ -185,22 +185,22 @@ class TestApproval:
 class TestSettingsAndScopes:
     def test_incomplete_settings_fail_closed(self) -> None:
         with pytest.raises(IdentityError):
-            IdentitySettings(issuer=ISS, audience=AUD, admin_token="").validate_complete()
+            IdentitySettings(issuer=ISS, audience=AUD, gateway_token="").validate_complete()
         with pytest.raises(IdentityError):
-            IdentitySettings(issuer="", audience=AUD, admin_token="x").validate_complete()
+            IdentitySettings(issuer="", audience=AUD, gateway_token="x").validate_complete()
 
     def test_plain_http_only_on_loopback(self) -> None:
         with pytest.raises(IdentityError):
             IdentitySettings(
-                issuer="http://auth.example", audience=AUD, admin_token="x"
+                issuer="http://auth.example", audience=AUD, gateway_token="x"
             ).validate_complete()
         IdentitySettings(
-            issuer="https://auth.example", audience=AUD, admin_token="x"
+            issuer="https://auth.example", audience=AUD, gateway_token="x"
         ).validate_complete()
         IdentitySettings(
-            issuer="http://auth.lan", audience=AUD, admin_token="x", allow_http=True
+            issuer="http://auth.lan", audience=AUD, gateway_token="x", allow_http=True
         ).validate_complete()
-        IdentitySettings(issuer=ISS, audience=AUD, admin_token="x").validate_complete()
+        IdentitySettings(issuer=ISS, audience=AUD, gateway_token="x").validate_complete()
 
     def test_scope_strings(self) -> None:
         assert scope_read("d1") == "device:d1:read"

@@ -25,6 +25,7 @@ type service struct {
 	auth      *theauth.TheAuth
 	db        *sql.DB
 	approvals *toolguard.StorageApprovals
+	store     theauth.ToolApprovalAdminStorage
 	owner     theauth.User
 	handler   http.Handler
 }
@@ -79,7 +80,7 @@ func newService(ctx context.Context, cfg config) (*service, error) {
 	if err != nil {
 		return fail("theauth: %w", err)
 	}
-	s := &service{cfg: cfg, auth: a, db: db}
+	s := &service{cfg: cfg, auth: a, db: db, store: store}
 	s.approvals = toolguard.NewStorageApprovals(store,
 		toolguard.WithApprovalTTL(cfg.approvalTTL), toolguard.WithApprovalAudit(a.EmitAudit))
 	if s.owner, err = a.CreateUser(ctx, theauth.CreateUserInput{Email: ownerEmail, Name: "ThingWire gateway owner"}); err != nil {

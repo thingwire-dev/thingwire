@@ -79,7 +79,7 @@ def mint(key: ed25519.Ed25519PrivateKey) -> Callable[..., str]:
 
 @pytest.fixture
 def verifier(key: ed25519.Ed25519PrivateKey) -> AgentTokenVerifier:
-    settings = IdentitySettings(issuer=ISS, audience=AUD, admin_token="x")
+    settings = IdentitySettings(issuer=ISS, audience=AUD, gateway_token="x")
     return AgentTokenVerifier(settings, JwksKeys(lambda: jwks_for((KID, key))))
 
 
@@ -106,7 +106,7 @@ class TestAccepts:
     ) -> None:
         act = {"sub": "agent:B2", "act": {"sub": "agent:A1"}}
         ident = await verifier.verify(mint(claims(sub="USER1", act=act)))
-        assert ident.agent_id == "A1"  # innermost actor in the chain
+        assert ident.agent_id == "B2"  # newest actor is the top-level act (theauth chain.Prepend)
         assert ident.delegation_chain == ("USER1", "agent:B2", "agent:A1")
 
 

@@ -12,11 +12,18 @@ from typing import Any
 from fastmcp import FastMCP
 
 from thingwire.audit_log import AuditLog
-from thingwire.identity import AgentIdentity, IdentitySettings, current_identity
+from thingwire.identity import (
+    RESERVED_ACTION,
+    AgentIdentity,
+    IdentitySettings,
+    check_sse_host,
+    current_identity,
+)
 from thingwire.identity_gate import (
     Gatekeeper,
     Verdict,
     create_identity_server,
+    recheck_safety,
     record_audit,
 )
 from thingwire.mqtt_bridge import MqttBridge
@@ -98,7 +105,7 @@ def _build_action_signature(params: list[ToolParameter]) -> inspect.Signature:
                     p.name,
                     inspect.Parameter.POSITIONAL_OR_KEYWORD,
                     default=None,
-                    annotation=annotation | None,  # type: ignore[operator]
+                    annotation=annotation | None,
                 )
             )
     return inspect.Signature(sig_params, return_annotation=dict[str, Any])
@@ -113,7 +120,6 @@ def _register_action_tool(
 ) -> None:
     """Register an action tool (actuator command) on the MCP server."""
 
-    # Build the inner handler that captures tool/bridge/safety/audit
     async def _execute(params: dict[str, Any]) -> dict[str, Any]:
         gate, ident = _gate(mcp), current_identity()
         dangerous = not tool.safe or safety.is_dangerous(tool.device_id, tool.name)
@@ -128,6 +134,7 @@ def _register_action_tool(
                 tool.device_id,
                 bridge.get_last_telemetry_time(tool.device_id),
             )
+            safety.guards.check_estop(tool.device_id, tool.name)
             safety.check_permission(tool.device_id, tool.name)
             safety.check_rate_limit(tool.device_id, tool.name)
             safety.check_deadman_switch(tool.device_id)
@@ -143,10 +150,11 @@ def _register_action_tool(
             confirmed = True
         if gate and ident and dangerous:
             verdict = await gate.wait_approval(ident, tool.device_id, tool.source_name, params)
+            if verdict.allowed:
+                verdict = recheck_safety(safety, bridge, tool.device_id, tool.name) or verdict
             if not verdict.allowed:
                 return await _deny(audit, tool, params, ident, verdict)
 
-        # Extract target from source_name (e.g., "setRelay" -> "relay1")
         target = tool.source_name.replace("set", "").lower() + "1"
         value = params.get("state", params)
 
@@ -215,8 +223,10 @@ def register_device_tools(
     """
     tools = compile_tools(td, device_prefix=device_prefix)
     registered: list[str] = []
-
     for tool in tools:
+        if tool.tool_type == "action" and tool.source_name == RESERVED_ACTION:
+            logger.error("Refusing tool for action named '%s' (reserved scope)", RESERVED_ACTION)
+            continue
         if tool.tool_type == "read":
             _register_read_tool(mcp, tool, bridge, audit)
         elif tool.tool_type == "action":
@@ -283,6 +293,8 @@ def register_meta_tools(
 
 def create_mcp_server(name: str = "ThingWire") -> FastMCP:
     """Create a FastMCP server: authenticated HTTP when THINGWIRE_TRANSPORT=http, else plain."""
+    if os.environ.get("THINGWIRE_TRANSPORT") == "sse":
+        check_sse_host(os.environ.get("THINGWIRE_SSE_HOST"))  # raises IdentityError: fail closed
     if os.environ.get("THINGWIRE_TRANSPORT") == "http":
         return create_identity_server(name, IdentitySettings())  # raises IdentityError: fail closed
     return FastMCP(name)

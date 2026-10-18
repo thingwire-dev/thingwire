@@ -80,7 +80,7 @@ def served(monkeypatch: pytest.MonkeyPatch) -> Any:
     """An identity-enabled server with the desk bot tools, a fake bridge and a recording audit."""
     monkeypatch.setenv("THINGWIRE_TRANSPORT", "http")
     monkeypatch.setenv("THINGWIRE_AUTH_ISSUER", ISS)
-    monkeypatch.setenv("THINGWIRE_AUTH_ADMIN_TOKEN", "x")
+    monkeypatch.setenv("THINGWIRE_AUTH_GATEWAY_TOKEN", "x")
     mcp = create_mcp_server()
     bridge, audit, safety = FakeBridge(), RecordingAudit(), SafetyLayer()
     safety.register_device(str(TD["id"]), TD)  # safety is keyed by td.id
@@ -195,7 +195,7 @@ class TestStdioDevMode:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("THINGWIRE_TRANSPORT", "http")
-        for var in ("ISSUER", "ADMIN_TOKEN"):
+        for var in ("ISSUER", "GATEWAY_TOKEN"):
             monkeypatch.delenv(f"THINGWIRE_AUTH_{var}", raising=False)
         with pytest.raises(IdentityError):
             create_mcp_server()
@@ -246,7 +246,7 @@ class TestHttpTransport401:
         key = ed25519.Ed25519PrivateKey.generate()
         monkeypatch.setattr(gate_mod, "fetch_jwks_http", lambda _url: jwks_for((KID, key)))
         mcp = create_identity_server(
-            "t", IdentitySettings(issuer=ISS, audience=AUD, admin_token="x")
+            "t", IdentitySettings(issuer=ISS, audience=AUD, gateway_token="x")
         )
         return mcp.http_app(path="/mcp"), key
 

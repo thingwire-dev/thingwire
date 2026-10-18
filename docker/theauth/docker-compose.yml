@@ -1,6 +1,6 @@
-# ThingWire identity service (theauth-go). Both secrets are required, there are no defaults:
+# ThingWire identity service (theauth-go). All secrets are required, there are no defaults:
 #   export THEAUTH_ENCRYPTION_KEY=$(openssl rand -hex 32)
-#   export THEAUTH_ADMIN_TOKEN=$(openssl rand -hex 24)
+#   export THEAUTH_GATEWAY_TOKEN=$(openssl rand -hex 24)
 #   docker compose up -d --build
 services:
   theauth:
@@ -13,7 +13,8 @@ services:
       THEAUTH_RESOURCE: "${THEAUTH_RESOURCE:-http://localhost:8000/mcp}"
       THEAUTH_SCOPES: "${THEAUTH_SCOPES:-}"
       THEAUTH_ENCRYPTION_KEY: "${THEAUTH_ENCRYPTION_KEY:?set THEAUTH_ENCRYPTION_KEY (openssl rand -hex 32)}"
-      THEAUTH_ADMIN_TOKEN: "${THEAUTH_ADMIN_TOKEN:?set THEAUTH_ADMIN_TOKEN (openssl rand -hex 24)}"
+      THEAUTH_GATEWAY_TOKEN: "${THEAUTH_GATEWAY_TOKEN:?set THEAUTH_GATEWAY_TOKEN (openssl rand -hex 24)}"
+      THEAUTH_OPERATOR_TOKEN: "${THEAUTH_OPERATOR_TOKEN:?set THEAUTH_OPERATOR_TOKEN (openssl rand -hex 24)}"
     volumes:
       - theauth-data:/data
     restart: unless-stopped
