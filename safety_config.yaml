@@ -11,3 +11,5 @@ global:
   default_rate_limit:
     max_calls: 10
     window_seconds: 60
+  # Out-of-range numeric input: "reject" (default) or "clamp" (opt-in).
+  out_of_range: reject

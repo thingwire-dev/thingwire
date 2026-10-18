@@ -11,6 +11,8 @@ from typing import Any
 
 import aiosqlite
 
+from thingwire.safety_motion import Decision
+
 logger = logging.getLogger(__name__)
 
 CREATE_TABLE_SQL = """
@@ -30,6 +32,14 @@ CREATE_INDEX_SQL = """
 CREATE INDEX IF NOT EXISTS idx_commands_device_ts
 ON commands (device_id, timestamp DESC)
 """
+
+IDENTITY_COLUMNS = {
+    "agent_id": "TEXT",
+    "delegation_chain": "TEXT",
+    "scopes": "TEXT",
+    "decision": "TEXT",
+    "reason": "TEXT",
+}
 
 
 class AuditLog:
@@ -54,6 +64,7 @@ class AuditLog:
 
         await self._db.execute(CREATE_TABLE_SQL)
         await self._db.execute(CREATE_INDEX_SQL)
+        await self._migrate()
         await self._db.commit()
 
         # Rotate old entries on startup
@@ -66,6 +77,15 @@ class AuditLog:
             )
 
         logger.info("Audit log initialized at %s", self._db_path)
+
+    async def _migrate(self) -> None:
+        """Idempotently add identity and decision columns to older databases."""
+        assert self._db is not None
+        cursor = await self._db.execute("PRAGMA table_info(commands)")
+        existing = {row[1] for row in await cursor.fetchall()}
+        for name, sql_type in IDENTITY_COLUMNS.items():
+            if name not in existing:
+                await self._db.execute(f"ALTER TABLE commands ADD COLUMN {name} {sql_type}")
 
     async def close(self) -> None:
         """Close the database connection."""
@@ -85,6 +105,11 @@ class AuditLog:
         result: dict[str, Any],
         confirmed: bool = False,
         source: str = "mcp",
+        agent_id: str | None = None,
+        delegation_chain: list[str] | None = None,
+        scopes: list[str] | None = None,
+        decision: str | None = None,
+        reason: str | None = None,
     ) -> int:
         """Record a command execution to the audit log. Returns row ID."""
         if not self._db:
@@ -97,8 +122,9 @@ class AuditLog:
             cursor = await self._db.execute(
                 """
                 INSERT INTO commands
-                (timestamp, device_id, action, params_json, result_json, confirmed, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (timestamp, device_id, action, params_json, result_json, confirmed, source,
+                 agent_id, delegation_chain, scopes, decision, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     timestamp,
@@ -108,6 +134,11 @@ class AuditLog:
                     json.dumps(result),
                     int(confirmed),
                     source,
+                    agent_id,
+                    json.dumps(delegation_chain) if delegation_chain is not None else None,
+                    json.dumps(scopes) if scopes is not None else None,
+                    decision,
+                    reason,
                 ),
             )
             await self._db.commit()
@@ -117,6 +148,34 @@ class AuditLog:
         except Exception:
             logger.exception("Failed to write audit log entry for %s/%s", device_id, action)
             return 0
+
+    async def record_decision(
+        self,
+        device_id: str,
+        action: str,
+        params: dict[str, Any],
+        verdict: Decision,
+        *,
+        confirmed: bool = False,
+        source: str = "mcp",
+        agent_id: str | None = None,
+        delegation_chain: list[str] | None = None,
+        scopes: list[str] | None = None,
+    ) -> int:
+        """Record a safety Decision (verdict, reason code, message, details)."""
+        return await self.record(
+            device_id,
+            action,
+            params,
+            {"allowed": verdict.allowed, "message": verdict.message, "details": verdict.details},
+            confirmed=confirmed,
+            source=source,
+            agent_id=agent_id,
+            delegation_chain=delegation_chain,
+            scopes=scopes,
+            decision=verdict.decision,
+            reason=verdict.code,
+        )
 
     async def get_recent(
         self,
@@ -133,7 +192,8 @@ class AuditLog:
                 cursor = await self._db.execute(
                     """
                     SELECT id, timestamp, device_id, action,
-                        params_json, result_json, confirmed, source
+                        params_json, result_json, confirmed, source,
+                        agent_id, delegation_chain, scopes, decision, reason
                     FROM commands
                     WHERE device_id = ?
                     ORDER BY timestamp DESC
@@ -145,7 +205,8 @@ class AuditLog:
                 cursor = await self._db.execute(
                     """
                     SELECT id, timestamp, device_id, action,
-                        params_json, result_json, confirmed, source
+                        params_json, result_json, confirmed, source,
+                        agent_id, delegation_chain, scopes, decision, reason
                     FROM commands
                     ORDER BY timestamp DESC
                     LIMIT ?
@@ -164,6 +225,11 @@ class AuditLog:
                     "result": json.loads(row[5]) if row[5] else None,
                     "confirmed": bool(row[6]),
                     "source": row[7],
+                    "agent_id": row[8],
+                    "delegation_chain": json.loads(row[9]) if row[9] else None,
+                    "scopes": json.loads(row[10]) if row[10] else None,
+                    "decision": row[11],
+                    "reason": row[12],
                 }
                 for row in rows
             ]

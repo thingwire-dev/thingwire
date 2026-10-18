@@ -6,11 +6,14 @@ MUST pass through this module before reaching the MQTT bridge.
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from thingwire.safety_motion import AxisLimit, Decision, MotionGuard, extract_limits
 
 logger = logging.getLogger(__name__)
 
@@ -22,17 +25,18 @@ class RateLimitWindow:
     max_calls: int
     window_seconds: float
     timestamps: list[float] = field(default_factory=list)
+    clock: Callable[[], float] = time.monotonic
 
     def check(self) -> bool:
         """Return True if action is within rate limit."""
-        now = time.monotonic()
+        now = self.clock()
         # Prune old timestamps
         self.timestamps = [t for t in self.timestamps if now - t < self.window_seconds]
         return len(self.timestamps) < self.max_calls
 
     def record(self) -> None:
         """Record a call timestamp."""
-        self.timestamps.append(time.monotonic())
+        self.timestamps.append(self.clock())
 
 
 class SafetyError(Exception):
@@ -47,7 +51,11 @@ class SafetyError(Exception):
 class SafetyLayer:
     """Enforces safety policies for device commands."""
 
-    def __init__(self, config_path: str | None = None) -> None:
+    def __init__(
+        self, config_path: str | None = None, clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self._clock = clock
+        self._limits: dict[tuple[str, str], dict[str, AxisLimit]] = {}
         self._config: dict[str, Any] = {"devices": {}, "global": {}}
         self._rate_limiters: dict[str, dict[str, RateLimitWindow]] = {}
         self._last_heartbeat: dict[str, float] = {}
@@ -56,6 +64,8 @@ class SafetyLayer:
             self._load_config(config_path)
         else:
             self._load_defaults()
+        mode = str(self._config.get("global", {}).get("out_of_range", "reject")).lower()
+        self._motion = MotionGuard(clock, "clamp" if mode == "clamp" else "reject")
 
     def _load_config(self, config_path: str) -> None:
         """Load safety configuration from YAML."""
@@ -94,6 +104,9 @@ class SafetyLayer:
             allowed_actions.append(f"read_{name}")
         for name, action in actions.items():
             allowed_actions.append(f"do_{name}")
+            limits = extract_limits(action)
+            if limits:
+                self._limits[(device_id, f"do_{name}")] = limits
             if not action.get("safe", True):
                 dangerous_actions.append(f"do_{name}")
 
@@ -147,6 +160,7 @@ class SafetyLayer:
             self._rate_limiters[device_id][action] = RateLimitWindow(
                 max_calls=rate_config["max_calls"],
                 window_seconds=rate_config["window_seconds"],
+                clock=self._clock,
             )
 
         limiter = self._rate_limiters[device_id][action]
@@ -210,7 +224,7 @@ class SafetyLayer:
     def prune_rate_limiters(self) -> int:
         """Remove expired rate limit windows to prevent memory leak. Returns pruned count."""
         pruned = 0
-        now = time.monotonic()
+        now = self._clock()
         for device_id in list(self._rate_limiters):
             for action in list(self._rate_limiters[device_id]):
                 limiter = self._rate_limiters[device_id][action]
@@ -223,3 +237,53 @@ class SafetyLayer:
             if not self._rate_limiters[device_id]:
                 del self._rate_limiters[device_id]
         return pruned
+
+    def evaluate(
+        self,
+        device_id: str,
+        action: str,
+        params: dict[str, Any],
+        *,
+        approved: bool = False,
+        agent_id: str | None = None,
+        delegation_chain: list[str] | None = None,
+        scopes: list[str] | None = None,
+    ) -> Decision:
+        """Run every check and return a structured Decision. Fails closed on any error.
+
+        Identity arguments are accepted for the audit trail (populated by the
+        identity layer); they do not alter the verdict here.
+        """
+        try:
+            return self._evaluate(device_id, action, params, approved)
+        except SafetyError as exc:
+            return Decision(False, exc.code, exc.message, {"agent_id": agent_id})
+        except Exception as exc:
+            logger.exception("Safety check failed for %s/%s, denying", device_id, action)
+            return Decision(
+                False,
+                "SAFETY_CHECK_ERROR",
+                "Safety check raised an error; command denied (fail closed)",
+                {"error": f"{type(exc).__name__}: {exc}"},
+            )
+
+    def _evaluate(
+        self, device_id: str, action: str, params: dict[str, Any], approved: bool
+    ) -> Decision:
+        self.check_permission(device_id, action)
+        self.check_deadman_switch(device_id)
+        required = self._config.get("global", {}).get("require_confirmation_for_dangerous", True)
+        if required and self.is_dangerous(device_id, action) and not approved:
+            return Decision(
+                False,
+                "APPROVAL_REQUIRED",
+                self.require_confirmation(action, params),
+                {"action": action},
+            )
+        limits = self._limits.get((device_id, action), {})
+        verdict = self._motion.check(device_id, action, params, limits)
+        if not verdict.allowed:
+            return verdict
+        self.check_rate_limit(device_id, action)
+        self._motion.commit(device_id, action, verdict.params)
+        return verdict
