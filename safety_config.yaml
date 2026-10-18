@@ -26,3 +26,20 @@ global:
       - OUT_OF_RANGE
       - SLEW_EXCEEDED
       - ACTION_NOT_ALLOWED
+
+
+# Provenance taint policy. Actions taken while untrusted-origin sensor data
+# (camera, OCR, STT, range scans) has been in the agent's context since the last
+# operator instruction need approval or the extra scope. Pure reads are allowed.
+taint:
+  enabled: true
+  # Scope that lets a tainted action proceed without interactive approval.
+  extra_scope: "taint:override"
+  # Origins treated as untrusted: trusted_operator, device_telemetry, untrusted_perception.
+  untrusted_origins: [untrusted_perception]
+  # Mode for actions not listed below: require_approval, allow or deny.
+  default_mode: require_approval
+  # Tool names that never actuate; always allowed.
+  read_actions: []
+  # Per-action override, e.g. sweep: {mode: deny}
+  actions: {}
