@@ -69,6 +69,6 @@ def test_recorded_deadman_denial_replays_identically(tmp_path: Path) -> None:
     rec.close()
     first, second = replay(path), replay(path)
     codes = [d["code"] for _, d in sorted(first.decisions.items())]
-    assert codes == ["OK", "DEADMAN_SWITCH", "OK"]
+    assert codes == ["OK", "DEADMAN_SWITCH", "ESTOP_LATCHED"]  # deadman latches e-stop
     assert first.decisions == second.decisions
     assert first.diffs == [] and second.diffs == []
