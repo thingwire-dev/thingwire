@@ -139,17 +139,14 @@ class TestRateLimiterPruning:
 class TestSendCommandValidation:
     """Test command sending edge cases."""
 
-    def test_send_without_connection_raises(self) -> None:
+    @pytest.mark.asyncio
+    async def test_send_without_connection_raises(self) -> None:
         """Sending a command when not connected should raise."""
         config = GatewayConfig(mqtt_broker="localhost")
         bridge = MqttBridge(config)
 
-        import asyncio
-
         with pytest.raises(RuntimeError, match="Not connected"):
-            asyncio.get_event_loop().run_until_complete(
-                bridge.send_command("dev-1", "relay1", "set", True)
-            )
+            await bridge.send_command("dev-1", "relay1", "set", True)
 
 
 # ── Graceful Shutdown ──
