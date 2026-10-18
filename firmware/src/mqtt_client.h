@@ -19,7 +19,7 @@ namespace MqttClient {
     /// Publish telemetry JSON to thingwire/{device_id}/telemetry
     void publishTelemetry(const char* json);
 
-    /// Publish a non-retained event to thingwire/{device_id}/events
+    /// Publish a non-retained event to thingwire/{device_id}/event
     void publishEvent(const char* json);
 
     /// Publish a retained message (used for TD and status)

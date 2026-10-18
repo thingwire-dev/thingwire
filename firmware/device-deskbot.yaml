@@ -3,8 +3,8 @@
 # Regenerate firmware/src/deskbot_gen.h with: python3 firmware/tools/gen_deskbot_td.py
 
 device_id: desk-bot-001
-title: ThingWire Desk Bot
-description: Desk robot with a two-axis servo head, OLED eyes and a PIR presence sensor
+title: Desk Bot
+description: Desk robot with a two-axis head (pan/tilt), OLED eyes and a presence sensor
 
 # XIAO ESP32S3 Sense header pins (GPIO numbers). See docs/desk-bot-wiring.md.
 pins:

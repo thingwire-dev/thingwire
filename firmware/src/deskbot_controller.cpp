@@ -139,9 +139,14 @@ static const char* _execute(const char* action, JsonVariantConst value) {
     }
     if (strcmp(action, "sweep") == 0) {
         float speed;
-        if (!_num(value, "speed_deg_s", &speed) || speed < DESKBOT_SWEEP_MIN_SPEED
-            || speed > DESKBOT_SWEEP_MAX_SPEED) {
-            return "sweep speed out of range";
+        if (!_num(value, "speed_deg_s", &speed)) {
+            return "sweep needs numeric speed_deg_s";
+        }
+        // Clamp to the TD range; ServoHead further limits to the per-axis slew.
+        if (speed < DESKBOT_SWEEP_MIN_SPEED) {
+            speed = DESKBOT_SWEEP_MIN_SPEED;
+        } else if (speed > DESKBOT_SWEEP_MAX_SPEED) {
+            speed = DESKBOT_SWEEP_MAX_SPEED;
         }
         _cancelSequence();
         _startSweep(speed);

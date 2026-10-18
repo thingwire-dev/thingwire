@@ -22,21 +22,26 @@ def load_config(path: Path = YAML_PATH) -> dict[str, Any]:
         return yaml.safe_load(fh)
 
 
-def _axis_prop(name: str, axis: dict[str, Any]) -> dict[str, Any]:
+def _axis_prop(description: str, axis: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "number",
-        "unit": "degree",
+        "unit": "degrees",
         "minimum": axis["min"],
         "maximum": axis["max"],
         "maxSlewDegPerSec": axis["max_slew_deg_per_sec"],
         "readOnly": True,
-        "description": f"Current head {name} angle",
+        "description": description,
         "forms": [{"href": f"{BASE}/telemetry", "op": "observeproperty"}],
     }
 
 
-def _axis_input(axis: dict[str, Any]) -> dict[str, Any]:
-    return {"type": "number", "unit": "degree", "minimum": axis["min"], "maximum": axis["max"]}
+def _axis_input(description: str, axis: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "number",
+        "description": description,
+        "minimum": axis["min"],
+        "maximum": axis["max"],
+    }
 
 
 def _invoke_form() -> list[dict[str, str]]:
@@ -44,13 +49,14 @@ def _invoke_form() -> list[dict[str, str]]:
 
 
 def _event_form() -> list[dict[str, str]]:
-    return [{"href": f"{BASE}/events", "op": "subscribeevent"}]
+    return [{"href": f"{BASE}/event", "op": "subscribeevent"}]
 
 
 def build_td(cfg: dict[str, Any]) -> dict[str, Any]:
     """Build the desk bot Thing Description (placeholders left unresolved)."""
     pan, tilt = cfg["servo"]["pan"], cfg["servo"]["tilt"]
     nod, sweep = cfg["nod"], cfg["sweep"]
+    span = f"{nod['min_times']} to {nod['max_times']}"
     telemetry = [{"href": f"{BASE}/telemetry", "op": "observeproperty"}]
     return {
         "@context": "https://www.w3.org/2019/wot/td/v1.1",
@@ -61,57 +67,67 @@ def build_td(cfg: dict[str, Any]) -> dict[str, Any]:
         "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
         "security": ["nosec_sc"],
         "properties": {
-            "head_pan": _axis_prop("pan", pan),
-            "head_tilt": _axis_prop("tilt", tilt),
+            "head_pan": _axis_prop("Current head pan angle, -90 (left) to 90 (right)", pan),
+            "head_tilt": _axis_prop("Current head tilt angle, -30 (down) to 30 (up)", tilt),
             "expression": {
                 "type": "string",
                 "enum": cfg["expressions"],
                 "readOnly": True,
-                "description": "Expression shown on the OLED eyes",
+                "description": "Current eye expression",
                 "forms": telemetry,
             },
             "person_detected": {
                 "type": "boolean",
                 "readOnly": True,
-                "description": "True when the PIR sensor sees a person",
+                "description": "True when a person is in front of the bot",
                 "forms": telemetry,
             },
         },
         "actions": {
             "look_at": {
                 "title": "Look at",
-                "description": "Turn the head to a pan and tilt angle",
+                "description": "Turn the head to a pan/tilt angle. Motion is slew limited.",
                 "safe": True,
                 "idempotent": True,
                 "input": {
                     "type": "object",
-                    "properties": {"pan": _axis_input(pan), "tilt": _axis_input(tilt)},
+                    "properties": {
+                        "pan": _axis_input("Pan in degrees, -90 to 90", pan),
+                        "tilt": _axis_input("Tilt in degrees, -30 to 30", tilt),
+                    },
                     "required": ["pan", "tilt"],
                 },
                 "forms": _invoke_form(),
             },
             "set_expression": {
                 "title": "Set expression",
-                "description": "Change the OLED eye expression",
+                "description": "Change the OLED eye expression.",
                 "safe": True,
                 "idempotent": True,
                 "input": {
                     "type": "object",
-                    "properties": {"expression": {"type": "string", "enum": cfg["expressions"]}},
+                    "properties": {
+                        "expression": {
+                            "type": "string",
+                            "description": "One of " + ", ".join(cfg["expressions"]),
+                            "enum": cfg["expressions"],
+                        }
+                    },
                     "required": ["expression"],
                 },
                 "forms": _invoke_form(),
             },
             "nod": {
                 "title": "Nod",
-                "description": "Nod the head up and down",
+                "description": f"Nod the head up and down {span} times.",
                 "safe": True,
                 "idempotent": False,
                 "input": {
                     "type": "object",
                     "properties": {
                         "times": {
-                            "type": "integer",
+                            "type": "number",
+                            "description": f"Number of nods, {span}",
                             "minimum": nod["min_times"],
                             "maximum": nod["max_times"],
                         }
@@ -121,16 +137,22 @@ def build_td(cfg: dict[str, Any]) -> dict[str, Any]:
                 "forms": _invoke_form(),
             },
             "sweep": {
-                "title": "Sweep",
-                "description": "Sweep the head left and right. Needs approval.",
+                "title": "Sweep head",
+                "description": (
+                    "Continuously sweep the head left and right until another motion command "
+                    "arrives. Physical motion that needs human approval."
+                ),
                 "safe": False,
-                "idempotent": False,
+                "idempotent": True,
                 "input": {
                     "type": "object",
                     "properties": {
                         "speed_deg_s": {
                             "type": "number",
-                            "unit": "degree/second",
+                            "description": (
+                                f"Sweep speed in degrees per second, "
+                                f"{sweep['min_speed_deg_s']} to {sweep['max_speed_deg_s']}"
+                            ),
                             "minimum": sweep["min_speed_deg_s"],
                             "maximum": sweep["max_speed_deg_s"],
                         }
@@ -142,7 +164,7 @@ def build_td(cfg: dict[str, Any]) -> dict[str, Any]:
         },
         "events": {
             "wake_word": {
-                "description": "Wake word heard (ESP-SR, not yet implemented)",
+                "description": "Wake word heard (ESP-SR, stretch goal)",
                 "data": {
                     "type": "object",
                     "properties": {
@@ -153,7 +175,7 @@ def build_td(cfg: dict[str, Any]) -> dict[str, Any]:
                 "forms": _event_form(),
             },
             "person_seen": {
-                "description": "A person appeared in front of the bot",
+                "description": "A person came into view",
                 "data": {"type": "object", "properties": {"confidence": {"type": "number"}}},
                 "forms": _event_form(),
             },

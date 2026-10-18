@@ -49,7 +49,7 @@ stay free for later work.
 - If no valid command arrives for `deadman_timeout_ms` (default 30 s), the head slews to park.
 - Command shape on `thingwire/{device_id}/command`: `{"action_id","target":"look_at","value":{"pan":10,"tilt":0}}`
   where `target` is the action name and `value` is the action input.
-- Events (`person_seen`) are published to `thingwire/{device_id}/events`.
+- Events (`person_seen`) are published to `thingwire/{device_id}/event`.
 
 ## Wake word and person detection (stretch findings)
 

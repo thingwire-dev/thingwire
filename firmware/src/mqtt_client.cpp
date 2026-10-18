@@ -102,7 +102,7 @@ void publishTelemetry(const char* json) {
 void publishEvent(const char* json) {
     if (_mqtt.connected()) {
         char topic[TOPIC_BUF_SIZE];
-        snprintf(topic, TOPIC_BUF_SIZE, "thingwire/%s/events", DEVICE_ID);
+        snprintf(topic, TOPIC_BUF_SIZE, "thingwire/%s/event", DEVICE_ID);
         _mqtt.publish(topic, json);
     }
 }
