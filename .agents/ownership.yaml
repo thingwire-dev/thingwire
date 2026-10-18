@@ -71,6 +71,8 @@ rules:
     paths: ["tests/test_e2e*.py", "examples/**", "docs/**"]
   - branch: "fix/*"
     paths: ["src/**", "tests/**", "scripts/**", "docs/**", "firmware/**"]
+  - branch: "docs/contracts-*"
+    paths: [docs/contracts.md]
   - branch: "docs/*"
     paths: ["docs/**", "*.md", "examples/**"]
   - branch: "chore/lint-*"

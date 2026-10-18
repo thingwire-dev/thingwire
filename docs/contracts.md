@@ -20,11 +20,20 @@ device id.
 | `thingwire/{id}/command` | gateway to device | no | command JSON (1.2) | implemented |
 | `thingwire/{id}/event` | device to gateway | no | event JSON (1.4) | implemented on the virtual bot; the gateway bridge does not subscribe to it yet |
 | `thingwire/{id}/scene` | virtual bot to viewer | no | `{timestamp, people[], visible_text[]}` | implemented (virtual bot only, demo input) |
-| `thingwire/{id}/safety_status` | gateway to device and viewer | yes | **PLANNED** | PLANNED (in-flight E-stop work) |
-| `thingwire/{id}/estop` | gateway to device | yes | **PLANNED** | PLANNED (in-flight E-stop work) |
+| `thingwire/{id}/safety_status` | gateway to device and viewer | yes | safety state JSON (1.5) | implemented (`safety_bridge.py`) |
+| `thingwire/safety_status` | gateway to viewer | yes | same, global scope | implemented |
+| `thingwire/{id}/estop` | both ways | no | any non-retained message trips the stop; `{"reset": true}` clears it | implemented |
+| `thingwire/estop` | to gateway | no | global trip, same rules | implemented |
 
 The gateway routes on `topic.split("/")` as `[prefix, device_id, subtopic]` and handles
-`td`, `telemetry`, `status` only (`mqtt_bridge.py`). Unknown subtopics are ignored.
+`td`, `telemetry`, `status`, `estop` (`mqtt_bridge.py`). Unknown subtopics are ignored. A retained
+estop message is ignored on purpose, so a stale trip cannot undo an authorized reset. After an
+authorized reset the gateway publishes `{"reset": true}` (not retained) to `{id}/estop`.
+
+Broker ACL profile (`docker/mosquitto-acl.conf`, `docs/security-broker.md`): a device may publish
+only `td|telemetry|status|event|safety_status` under its own id and subscribe to `command` and
+`estop`; user `thingwire-gateway` publishes `command` and `estop`. The gateway does not read MQTT
+credentials yet, so it cannot join the ACL broker (PLANNED).
 
 ### 1.1 Telemetry payload
 
@@ -56,6 +65,13 @@ the action; treat the desk bot as the reference.
 
 `{"event": "<name>", "confidence": <number>}` for `person_seen`. `wake_word` carries
 `{phrase, confidence}` (stretch goal, not emitted yet).
+
+### 1.5 safety_status payload
+
+`{"state": "ok" | "degraded" | "estop", "drop_reason": <str|null>, "last_decision_code": "<code>",
+"trace_id": "<id>", "timestamp": "<ISO 8601 Z>"}`, retained, published only when
+`(state, drop_reason)` changes (`safety_status.py`). A device in `estop` refuses commands with the
+ack `{"status": "error", "error": "ESTOP_LATCHED"}` and parks at pan 0, tilt 0.
 
 ## 2. Desk bot Thing Description
 
@@ -93,6 +109,7 @@ Each property becomes `read_<slug>` and each action `do_<slug>`; with a device p
 
 | Scope | Meaning | Status |
 | --- | --- | --- |
+| `taint:override` | lets a tainted-context action proceed without interactive approval | config key exists (`taint.extra_scope`); minting PLANNED (W3) |
 | `device:<id>:read` | read properties and events | PLANNED (W3 identity) |
 | `device:<id>:act:<action>` | call one action | PLANNED (W3 identity) |
 | `device:<id>:act:dangerous` | additionally required for `safe: false` actions; human approval still required | PLANNED (W3 identity) |
@@ -120,7 +137,12 @@ Created in `audit_log.py`. The last five columns are added by migration if missi
 | `decision` | TEXT | `allow` or `deny` (`Decision.decision`) |
 | `reason` | TEXT | a code from section 5 |
 
-Index: `idx_commands_device_ts`. **PLANNED** column: `provenance` (in-flight provenance work).
+Index: `idx_commands_device_ts`. Safety transitions are also logged (`record_transition`) as rows
+with `source` `safety`, `action` `safety:<event>`, `decision` `transition`,
+`reason` `<state>:<drop_reason or last_decision_code>`, `agent_id` = actor.
+**PLANNED**: a provenance column; `Provenance` (`provenance.py`: `origin` of `trusted_operator`,
+`device_telemetry`, `untrusted_perception`; `source_device`; `timestamp`; `content_hash`;
+`taint_id`) exists but is not yet written to the audit log or MCAP.
 
 ## 5. Decision and reason codes
 
@@ -140,13 +162,26 @@ Index: `idx_commands_device_ts`. **PLANNED** column: `provenance` (in-flight pro
 | `DEADMAN_SWITCH` | no | `SafetyLayer` | no heartbeat within `deadman_switch_timeout_seconds` |
 | `APPROVAL_REQUIRED` | no | `SafetyLayer` | `safe: false` action without approval |
 | `SAFETY_CHECK_ERROR` | no | `SafetyLayer` | any unexpected exception (fail closed) |
+| `ESTOP_LATCHED` | no | `safety_estop.py` | e-stop latched for the device or globally |
+| `DENIAL_FLOOD` | no | `safety_flood.py` | repeated denials throttled per (device, action) |
+| `RESET_NOT_AUTHORIZED` | no | `safety_estop.py` | caller not in `global.estop.authorized_resetters` |
+| `ESTOP_STATE_UNAVAILABLE` | no | `safety_estop.py` | latch state unreadable, fail closed |
 | `MISSING_SCOPE` | no | identity layer | **PLANNED** (W3) |
-| `ESTOP_ACTIVE` | no | safety layer | **PLANNED** (E-stop work) |
+
+The enum is `DecisionCode` in `src/thingwire/safety_codes.py`. Taint policy codes
+(`taint_policy.py`, strings, not in the enum yet): `TAINTED_CONTEXT_REQUIRES_APPROVAL`,
+`TAINTED_CONTEXT_DENIED`, `TAINT_OK`, `TAINT_READ_ALLOWED`, `TAINT_OVERRIDDEN`,
+`TAINT_MALFORMED_INPUT`. Scan plausibility codes (`plausibility.py`): `SCAN_MALFORMED`,
+`SCAN_NON_FINITE`, `SCAN_OUT_OF_RANGE`, `SCAN_ALL_BLOCKED`, `SCAN_ALL_IDENTICAL`,
+`SCAN_IMPLAUSIBLE_JUMP`, `SCAN_BAD_TIMESTAMP`, `SCAN_LENGTH_CHANGED`.
 
 New codes are UPPER_SNAKE_CASE strings. Adding one is a contract change. Config keys
 (`safety_config.yaml`): `global.require_confirmation_for_dangerous`,
 `global.deadman_switch_timeout_seconds` (default 300), `global.default_rate_limit`
-(`max_calls` 10, `window_seconds` 60), `global.out_of_range` (`reject` or `clamp`).
+(`max_calls` 10, `window_seconds` 60), `global.out_of_range` (`reject` or `clamp`), `global.estop.authorized_resetters` (default
+`[operator]`), `global.denial_flood` (`threshold` 20, `window_seconds` 60, `counted_codes`), and the
+top-level `taint:` section (`enabled`, `extra_scope` `taint:override`, `untrusted_origins`,
+`default_mode`, `read_actions`, `actions`).
 
 ## 6. MCAP recording (`recorder.py`)
 
