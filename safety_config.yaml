@@ -13,3 +13,16 @@ global:
     window_seconds: 60
   # Out-of-range numeric input: "reject" (default) or "clamp" (opt-in).
   out_of_range: reject
+  # Latched e-stop. Only these identities may call reset_estop().
+  estop:
+    authorized_resetters:
+      - operator
+  # Throttle repeated denials per (device, action). threshold 0 disables.
+  denial_flood:
+    threshold: 20
+    window_seconds: 60
+    counted_codes:
+      - INVALID_INPUT
+      - OUT_OF_RANGE
+      - SLEW_EXCEEDED
+      - ACTION_NOT_ALLOWED
