@@ -85,9 +85,13 @@ async def test_adapter_publishes_retained_and_audits(tmp_path: Path) -> None:
     adapter.on_estop_message("servo", b"stale retained", True)  # ignored
     adapter.on_estop_message(None, b'{"reset": true}', False)  # echo, ignored
     layer.reset_estop("servo", "inspected", "operator")
-    for _ in range(50):
+    rows: list[dict[str, Any]] = []
+    for _ in range(200):  # audit rows land after the publish, so wait on the audit itself
         await asyncio.sleep(0.01)
-        if len(bridge.sent) >= 3:
+        rows = await audit.get_recent("servo")
+        if len(bridge.sent) >= 3 and {"safety:estop_tripped", "safety:estop_reset"} <= {
+            r["action"] for r in rows
+        }:
             break
     topics = [(t, json.loads(p)["state"], r) for t, p, r in bridge.sent if "safety_status" in t]
     assert topics == [
@@ -95,7 +99,6 @@ async def test_adapter_publishes_retained_and_audits(tmp_path: Path) -> None:
         ("thingwire/servo/safety_status", "ok", True),
     ]
     assert ("thingwire/servo/estop", '{"reset": true}', False) in bridge.sent
-    rows: list[dict[str, Any]] = await audit.get_recent("servo")
     by_action = {r["action"]: r for r in rows}
     assert by_action["safety:estop_tripped"]["agent_id"] == "mqtt"
     assert by_action["safety:estop_reset"]["agent_id"] == "operator"
