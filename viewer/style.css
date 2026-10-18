@@ -1,0 +1,14 @@
+:root { --bg: #14161a; --fg: #e8eaed; --muted: #8b919a; --oled: #000; --pixel: #7fd8ff; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.4 system-ui, sans-serif; }
+main { max-width: 420px; margin: 0 auto; padding: 24px 16px; }
+h1 { font-size: 1.25rem; margin: 0 0 4px; }
+.muted { color: var(--muted); font-size: 0.85rem; }
+.head { margin: 24px auto; width: 300px; height: 220px; display: grid; place-items: center;
+  background: #2a2f38; border-radius: 28px; border: 2px solid #3a414d;
+  transition: transform 0.1s linear; transform-origin: 50% 100%; }
+.oled { background: var(--oled); border-radius: 10px; padding: 8px; border: 2px solid #1c1f25; }
+canvas { display: block; width: 240px; height: 120px; image-rendering: pixelated; }
+dl { display: grid; grid-template-columns: 6rem 1fr; gap: 4px 12px; margin: 0; }
+dt { color: var(--muted); }
+dd { margin: 0; font-variant-numeric: tabular-nums; }
