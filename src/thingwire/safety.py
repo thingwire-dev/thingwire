@@ -193,7 +193,7 @@ class SafetyLayer:
 
     def record_heartbeat(self, device_id: str) -> None:
         """Record a heartbeat from a device (manual call)."""
-        self._last_heartbeat[device_id] = time.monotonic()
+        self._last_heartbeat[device_id] = self._clock()
 
     def update_heartbeat_from_telemetry(self, device_id: str, telemetry_time: float | None) -> None:
         """Update heartbeat using the bridge's telemetry timestamp.
@@ -213,7 +213,7 @@ class SafetyLayer:
         if last is None:
             return  # No heartbeat tracking yet — allow first command
 
-        elapsed = time.monotonic() - last
+        elapsed = self._clock() - last
         if elapsed > timeout:
             raise SafetyError(
                 "DEADMAN_SWITCH",

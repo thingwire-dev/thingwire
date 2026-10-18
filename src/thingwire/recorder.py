@@ -1,6 +1,6 @@
 """MCAP session recorder and deterministic replay.
 
-Channels: tool_call, decision, telemetry, td (JSON, Foxglove compatible).
+Channels: tool_call, decision, telemetry, td, heartbeat (JSON, Foxglove compatible).
 The recorder never blocks the event loop and never raises into the safety path:
 records go to a bounded queue drained by a writer thread; failures are logged
 and counted in ``drops``.
@@ -60,6 +60,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "properties": {"device_id": _STR, "readings": _OBJ},
     },
     "td": {"type": "object", "properties": {"device_id": _STR, "td": _OBJ}},
+    "heartbeat": {"type": "object", "properties": {"device_id": _STR}},
 }
 _STOP = object()
 
@@ -165,6 +166,9 @@ class Recorder:
     def record_td(self, device_id: str, td: dict[str, Any]) -> None:
         self._enqueue("td", {"device_id": device_id, "td": td})
 
+    def record_heartbeat(self, device_id: str) -> None:
+        self._enqueue("heartbeat", {"device_id": device_id})
+
     def _enqueue(self, channel: str, payload: dict[str, Any]) -> None:
         try:
             if self._closed:
@@ -269,6 +273,8 @@ def replay(path: str | Path, safety_config: str | None = None) -> ReplayResult:
         clock.now = 1000.0 + (e.log_time - t0) / 1e9
         if e.channel == "td":
             safety.register_device(e.data["device_id"], e.data["td"])
+        elif e.channel == "heartbeat":
+            safety.record_heartbeat(e.data["device_id"])
         elif e.channel == "tool_call":
             d = e.data
             decision = safety.evaluate(
@@ -286,13 +292,6 @@ def replay(path: str | Path, safety_config: str | None = None) -> ReplayResult:
     for seq, new in sorted(result.decisions.items()):
         old = recorded.get(seq)
         if old is None or (old["allowed"], old["code"]) != (new["allowed"], new["code"]):
-            result.diffs.append(
-                {
-                    "call_seq": seq,
-                    "recorded": None
-                    if old is None
-                    else {"allowed": old["allowed"], "code": old["code"]},
-                    "replayed": new,
-                }
-            )
+            rec = None if old is None else {"allowed": old["allowed"], "code": old["code"]}
+            result.diffs.append({"call_seq": seq, "recorded": rec, "replayed": new})
     return result

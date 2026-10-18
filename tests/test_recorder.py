@@ -75,7 +75,7 @@ def test_mcap_readable_with_all_channels(mcap_path: Path) -> None:
         summary = make_reader(f).get_summary()
     assert summary is not None
     topics = {c.topic for c in summary.channels.values()}
-    assert topics == {"tool_call", "decision", "telemetry", "td"}
+    assert topics == {"tool_call", "decision", "telemetry", "td", "heartbeat"}
     for schema in summary.schemas.values():
         assert schema.encoding == "jsonschema"
     events = read_recording(mcap_path)
