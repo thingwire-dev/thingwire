@@ -1,5 +1,8 @@
 services:
+  # Dev profile: anonymous broker plus WebSocket viewer. Start with --profile dev
+  # (or name the service explicitly). Known limitation: see docs/security-broker.md.
   mosquitto:
+    profiles: ["dev"]
     image: eclipse-mosquitto:2
     ports:
       - "1883:1883"
@@ -9,7 +12,22 @@ services:
       - mosquitto-data:/mosquitto/data
     restart: unless-stopped
 
+  # ACL profile: anonymous disabled, per-device ACLs. Run
+  # `python scripts/gen_broker_acl.py --device <id>` first. No WebSocket listener.
+  mosquitto-acl:
+    profiles: ["acl"]
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto-acl.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./acl/mosquitto.passwd:/mosquitto/config/mosquitto.passwd:ro
+      - ./acl/mosquitto.acl:/mosquitto/config/mosquitto.acl:ro
+      - mosquitto-data:/mosquitto/data
+    restart: unless-stopped
+
   gateway:
+    profiles: ["dev"]
     build:
       context: ..
       dockerfile: docker/Dockerfile
