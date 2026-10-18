@@ -1,0 +1,40 @@
+# ROS 2 sim spike. Run: docker compose -f docker/ros2/compose.yaml up --build
+# ros and mcp sit on an internal network (no internet egress, no published ports).
+# Only the socat relay touches the host, and only on 127.0.0.1.
+# No bind mounts, no privileged mode, no docker socket anywhere.
+name: thingwire-ros2
+
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: "no"
+
+services:
+  ros:
+    <<: *hardening
+    build: {context: ., dockerfile: Dockerfile}
+    networks: [sim]
+
+  mcp:  # untrusted ros-mcp-server
+    <<: *hardening
+    build: {context: ., dockerfile: Dockerfile.mcp}
+    depends_on: [ros]
+    networks: [sim]
+
+  relay:  # host-facing; forwards localhost ports into the internal network
+    <<: *hardening
+    image: alpine/socat:1.8.0.3
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        socat TCP-LISTEN:9090,fork,reuseaddr TCP:ros:9090 &
+        exec socat TCP-LISTEN:9000,fork,reuseaddr TCP:mcp:9000
+    ports:
+      - "127.0.0.1:9090:9090"
+      - "127.0.0.1:9000:9000"
+    depends_on: [ros, mcp]
+    networks: [sim, edge]
+
+networks:
+  sim: {internal: true}
+  edge: {}
