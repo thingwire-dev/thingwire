@@ -21,3 +21,6 @@ scripts/check_ownership.py
 scripts/check_dashes.py
 tests/test_check_ownership.py
 tests/test_check_dashes.py
+src/thingwire/mqtt_bridge.py
+src/thingwire/mqtt_connection.py
+src/thingwire/mqtt_devices.py
