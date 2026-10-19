@@ -25,6 +25,8 @@ class DeviceStore:
         self._status: dict[str, str] = {}
         self._last_telemetry_time: dict[str, float] = {}  # device heartbeat from telemetry
         self.on_device_discovered: Callable[[str, dict[str, Any]], None] | None = None
+        # Called on the MQTT thread for each telemetry object; must not block.
+        self.on_telemetry: Callable[[str, dict[str, Any]], None] | None = None
 
     def _handle_td(self, device_id: str, payload: bytes) -> None:
         """Store raw Thing Description dict for a device."""
@@ -47,6 +49,12 @@ class DeviceStore:
             logger.debug("Telemetry from %s", device_id)
         except json.JSONDecodeError:
             logger.error("Invalid telemetry JSON from device %s", device_id)
+            return
+        if self.on_telemetry and isinstance(data, dict):
+            try:
+                self.on_telemetry(device_id, data)
+            except Exception:
+                logger.exception("Telemetry hook failed for %s", device_id)
 
     def _handle_status(self, device_id: str, payload: bytes) -> None:
         """Track device online/offline status."""
