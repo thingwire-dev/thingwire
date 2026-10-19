@@ -47,10 +47,18 @@ class ActionInput(BaseModel):
 
 
 class ActionForm(BaseModel):
-    """MQTT form link for an action."""
+    """MQTT form link for an action.
+
+    Optional ThingWire extensions name the command fields a device expects when they
+    differ from the action name (contracts.md 1.2): `thingwire:target`, `thingwire:command`.
+    """
 
     href: str
     op: str
+    target: str | None = Field(default=None, alias="thingwire:target")
+    command: str | None = Field(default=None, alias="thingwire:command")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ThingAction(BaseModel):

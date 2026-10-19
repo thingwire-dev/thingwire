@@ -39,6 +39,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "agent_id": _STR,
             "delegation_chain": {"type": "array", "items": _STR},
             "scopes": {"type": "array", "items": _STR},
+            "stage": _STR,
         },
     },
     "decision": {
@@ -122,8 +123,13 @@ class Recorder:
         agent_id: str | None = None,
         delegation_chain: list[str] | None = None,
         scopes: list[str] | None = None,
+        stage: str | None = None,
     ) -> int:
-        """Record a tool call; returns its sequence number (use for decisions)."""
+        """Record a tool call; returns its sequence number (use for decisions).
+
+        `stage` names a gateway check that decided before the safety layer (identity,
+        taint, approval). Replay re-runs only calls without a stage.
+        """
         with self._lock:
             seq = self._seq["tool_call"]
             self._seq["tool_call"] += 1
@@ -135,6 +141,8 @@ class Recorder:
             "approved": approved,
         }
         _put_identity(payload, agent_id, delegation_chain, scopes)
+        if stage is not None:
+            payload["stage"] = stage
         self._enqueue("tool_call", payload)
         return seq
 
@@ -275,7 +283,7 @@ def replay(path: str | Path, safety_config: str | None = None) -> ReplayResult:
             safety.register_device(e.data["device_id"], e.data["td"])
         elif e.channel == "heartbeat":
             safety.record_heartbeat(e.data["device_id"])
-        elif e.channel == "tool_call":
+        elif e.channel == "tool_call" and "stage" not in e.data:
             d = e.data
             decision = safety.evaluate(
                 d["device_id"],

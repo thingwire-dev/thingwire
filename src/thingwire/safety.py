@@ -36,6 +36,7 @@ class SafetyLayer:
         state_db_path: str | None = None,
         wall_clock: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
+        authorized_resetters: list[str] | None = None,
     ) -> None:
         self._clock = clock
         self._limits: dict[tuple[str, str], dict[str, AxisLimit]] = {}
@@ -48,6 +49,10 @@ class SafetyLayer:
             self._load_config(config_path)
         else:
             self._load_defaults()
+        if authorized_resetters is not None:  # deployment override (env), replaces the YAML list
+            glob = self._config.setdefault("global", {})
+            estop = dict(glob.get("estop") or {})
+            glob["estop"] = {**estop, "authorized_resetters": list(authorized_resetters)}
         mode = str(self._config.get("global", {}).get("out_of_range", "reject")).lower()
         self._motion = MotionGuard(clock, "clamp" if mode == "clamp" else "reject")
         extra: dict[str, Any] = {"id_factory": id_factory} if id_factory else {}
@@ -88,6 +93,11 @@ class SafetyLayer:
             },
         }
         logger.info("Using default safety configuration")
+
+    @property
+    def config(self) -> dict[str, Any]:
+        """Loaded safety configuration (read only by convention)."""
+        return self._config
 
     def register_device(self, device_id: str, td: dict[str, Any]) -> None:
         """Register a device and auto-generate safety rules from its TD."""
