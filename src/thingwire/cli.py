@@ -70,6 +70,7 @@ def main() -> None:
     type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"]),
 )
 @click.option("--ha-discovery", is_flag=True, default=False, help="Publish Home Assistant MQTT discovery messages")
+@click.option("--record", "record_path", default=None, help="Record the session to this MCAP file")
 def serve(
     broker: str | None,
     port: int | None,
@@ -77,6 +78,7 @@ def serve(
     sse_host: str | None,
     log_level: str,
     ha_discovery: bool,
+    record_path: str | None,
 ) -> None:
     """Start the ThingWire gateway and MCP server."""
     import asyncio
@@ -98,6 +100,8 @@ def serve(
     os.environ["THINGWIRE_TRANSPORT"] = transport
     if ha_discovery:
         os.environ["THINGWIRE_HA_DISCOVERY"] = "1"
+    if record_path:
+        os.environ["THINGWIRE_RECORD_PATH"] = record_path
 
     logging.basicConfig(
         level=getattr(logging, log_level),
@@ -331,8 +335,10 @@ def sim(device_id: str, broker: str, port: int) -> None:
         nonlocal relay_state
         try:
             cmd = json_mod.loads(msg.payload)
-            if cmd.get("target") == "relay1" and cmd.get("command") == "set":
-                relay_state = bool(cmd.get("value"))
+            value = cmd.get("value")
+            legacy = cmd.get("target") == "relay1" and cmd.get("command") == "set"
+            if legacy or cmd.get("command") == "setRelay":
+                relay_state = bool(value.get("state") if isinstance(value, dict) else value)
                 logger.info("Relay → %s", "ON" if relay_state else "OFF")
                 ack = {"action_id": cmd.get("action_id", ""), "status": "ok", "value": relay_state}
                 client.publish(f"{prefix}/status", json_mod.dumps(ack))
@@ -552,4 +558,61 @@ def replay(mcap_file: str, safety_config: str | None) -> None:
     for d in result.diffs:
         click.echo(f"  call {d['call_seq']}: recorded={d['recorded']} replayed={d['replayed']}")
     if result.diffs:
+        sys.exit(1)
+
+
+@main.group()
+def estop() -> None:
+    """Emergency stop status and the human-only reset (never exposed to agents)."""
+
+
+STATE_DB = click.option(
+    "--state-db", default=None, help="Safety state DB (default: THINGWIRE_SAFETY_STATE_DB_PATH)"
+)
+
+
+def _state_db(path: str | None) -> str:
+    from thingwire.config import GatewayConfig
+
+    return path or GatewayConfig().safety_state_db_path
+
+
+@estop.command(name="status")
+@STATE_DB
+def estop_status(state_db: str | None) -> None:
+    """List latched e-stops."""
+    from thingwire.gateway_estop import latched_scopes
+
+    rows = latched_scopes(_state_db(state_db))
+    for scope, reason, source, at in rows:
+        click.echo(f"{scope}  latched {at} by {source}: {reason}")
+    if not rows:
+        click.echo("No e-stop latched")
+
+
+@estop.command(name="reset")
+@click.option("--device", "device_id", default=None, help="Device id (omit with --all)")
+@click.option("--all", "all_scope", is_flag=True, help="Reset the global latch")
+@click.option("--who", required=True, help="Your name; must be an authorized resetter")
+@click.option("--reason", required=True, help="Why it is safe to resume")
+@click.option("--wait", default=15.0, show_default=True, help="Seconds to wait for the gateway")
+@STATE_DB
+def estop_reset(
+    device_id: str | None, all_scope: bool, who: str, reason: str, wait: float, state_db: str | None
+) -> None:
+    """Ask the running gateway (same host) to clear a latched e-stop."""
+    import time
+
+    from thingwire.gateway_estop import request_outcome, request_reset
+
+    if bool(device_id) == all_scope:
+        click.echo("Error: pass exactly one of --device or --all", err=True)
+        sys.exit(2)
+    path = _state_db(state_db)
+    req = request_reset(path, None if all_scope else device_id, who, reason)
+    deadline = time.monotonic() + wait
+    while (outcome := request_outcome(path, req)) is None and time.monotonic() < deadline:
+        time.sleep(0.25)
+    click.echo(f"reset request {req}: {outcome or 'pending (is the gateway running?)'}")
+    if outcome not in ("reset", "not_latched"):
         sys.exit(1)
