@@ -96,6 +96,11 @@ class MqttBridge(DeviceStore, ConnectionCallbacks):
         # Paho handles reconnection internally, but we configure sensible limits
         self._client.reconnect_delay_set(min_delay=1, max_delay=60)
 
+        if self._config.mqtt_username:
+            password = self._config.mqtt_password.get_secret_value() or None
+            self._client.username_pw_set(self._config.mqtt_username, password)
+            logger.info("MQTT login as %s", self._config.mqtt_username)
+
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message

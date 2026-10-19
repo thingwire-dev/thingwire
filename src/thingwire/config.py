@@ -1,6 +1,6 @@
 """Gateway configuration via environment variables."""
 
-from pydantic import field_validator
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -20,6 +20,18 @@ class GatewayConfig(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "text"  # "text" or "json"
     device_discovery_timeout: float = 30.0
+    # Broker credentials for the ACL profile (docs/security-broker.md). Empty = anonymous.
+    mqtt_username: str = ""
+    mqtt_password: SecretStr = SecretStr("")
+    # Latched e-stop state (survives restart) and the human reset inbox.
+    safety_state_db_path: str = "data/safety_state.db"
+    # Comma separated; overrides global.estop.authorized_resetters when set.
+    estop_resetters: str = ""
+    estop_reset_ttl_seconds: float = 60.0
+    # How often the deadman sweep and reset inbox run.
+    safety_sweep_seconds: float = 5.0
+    # MCAP session recording; empty disables it.
+    record_path: str = ""
 
     model_config = {"env_prefix": "THINGWIRE_"}
 
@@ -31,6 +43,20 @@ class GatewayConfig(BaseSettings):
             msg = f"mqtt_port must be 1-65535, got {v}"
             raise ValueError(msg)
         return v
+
+    @field_validator("safety_sweep_seconds", "estop_reset_ttl_seconds")
+    @classmethod
+    def positive_interval(cls, v: float) -> float:
+        """Intervals must be positive."""
+        if v <= 0:
+            msg = f"interval must be positive, got {v}"
+            raise ValueError(msg)
+        return v
+
+    def resetters(self) -> list[str] | None:
+        """Authorized e-stop resetters from the environment, or None to use the YAML."""
+        names = [n.strip() for n in self.estop_resetters.split(",") if n.strip()]
+        return names or None
 
     @field_validator("log_level")
     @classmethod

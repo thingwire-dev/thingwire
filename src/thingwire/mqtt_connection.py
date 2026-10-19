@@ -62,7 +62,11 @@ class ConnectionCallbacks:
     ) -> None:
         """Handle broker connection: subscribe to all device topics."""
         if rc != 0:
-            logger.error("MQTT connection failed with code %d", rc)
+            logger.error(
+                "MQTT connection failed with code %s (if the broker uses the ACL profile, check "
+                "THINGWIRE_MQTT_USERNAME and THINGWIRE_MQTT_PASSWORD)",
+                rc,
+            )
             self._state = ConnectionState.DISCONNECTED
             return
 
