@@ -1,7 +1,8 @@
-"""MCP server — wires MQTT bridge, TD loader, tool compiler, and safety layer.
+"""MCP server: wires MQTT bridge, TD loader, tool compiler and the gateway pipeline.
 
-This is the entry point that exposes compiled WoT TD tools to AI agents
-via the Model Context Protocol. No business logic here — just wiring.
+Entry point that exposes compiled WoT TD tools to AI agents via the Model Context
+Protocol. No business logic here: every device tool call goes through
+`gateway_actions.ActionPipeline` (identity, taint, approval, safety, audit, record).
 """
 
 import inspect
@@ -12,22 +13,17 @@ from typing import Any
 from fastmcp import FastMCP
 
 from thingwire.audit_log import AuditLog
+from thingwire.gateway_actions import ActionPipeline, CommandRoute
+from thingwire.gateway_taint import TaintTracker
 from thingwire.identity import (
     RESERVED_ACTION,
-    AgentIdentity,
     IdentitySettings,
     check_sse_host,
     current_identity,
 )
-from thingwire.identity_gate import (
-    Gatekeeper,
-    Verdict,
-    create_identity_server,
-    recheck_safety,
-    record_audit,
-)
+from thingwire.identity_gate import Gatekeeper, create_identity_server
 from thingwire.mqtt_bridge import MqttBridge
-from thingwire.safety import SafetyError, SafetyLayer
+from thingwire.safety import SafetyLayer
 from thingwire.td_loader import ThingDescription
 from thingwire.tool_compiler import CompiledTool, ToolParameter, compile_tools
 
@@ -38,9 +34,9 @@ _TYPE_MAP: dict[str, type] = {
     "integer": int,
     "string": str,
 }
+_PIPELINE_ATTR = "thingwire_pipeline"
 
 logger = logging.getLogger(__name__)
-_ALLOW = Verdict(True, "allow")
 
 
 def _gate(mcp: FastMCP) -> Gatekeeper | None:
@@ -48,40 +44,37 @@ def _gate(mcp: FastMCP) -> Gatekeeper | None:
     return getattr(mcp, "gate", None)
 
 
-async def _deny(audit: AuditLog, tool: CompiledTool, params: dict[str, Any],
-                ident: AgentIdentity | None, verdict: Verdict) -> dict[str, Any]:
-    """Audit and return a gate denial."""
-    await record_audit(audit, ident=ident, verdict=verdict, device_id=tool.device_id,
-                       action=tool.name, params=params, result=verdict.error())
-    return verdict.error()
+def attach_pipeline(mcp: FastMCP, pipeline: ActionPipeline) -> ActionPipeline:
+    """Use one pipeline (and one taint ledger) for every tool on this server."""
+    setattr(mcp, _PIPELINE_ATTR, pipeline)
+    return pipeline
 
 
-def _register_read_tool(
-    mcp: FastMCP,
-    tool: CompiledTool,
-    bridge: MqttBridge,
-    audit: AuditLog,
-) -> None:
+def _pipeline_for(
+    mcp: FastMCP, bridge: MqttBridge, safety: SafetyLayer, audit: AuditLog
+) -> ActionPipeline:
+    existing: ActionPipeline | None = getattr(mcp, _PIPELINE_ATTR, None)
+    if existing is not None:
+        return existing
+    taint = TaintTracker.from_config(safety.config)
+    return attach_pipeline(mcp, ActionPipeline(bridge, safety, audit, taint=taint))
+
+
+def command_route(td: ThingDescription, action_name: str) -> CommandRoute:
+    """Command fields the TD declares for an action; default is the action name itself."""
+    action = td.actions[action_name]
+    forms = [f for f in action.forms if f.op == "invokeaction"] or action.forms
+    form = forms[0] if forms else None
+    target = form.target if form and form.target else action_name
+    command = form.command if form and form.command else action_name
+    return CommandRoute(target=target, command=command)
+
+
+def _register_read_tool(mcp: FastMCP, tool: CompiledTool, pipeline: ActionPipeline) -> None:
     """Register a read tool (sensor reading) on the MCP server."""
 
     async def read_handler() -> dict[str, Any]:
-        gate, ident = _gate(mcp), current_identity()
-        if gate:
-            verdict = gate.check_read(ident, tool.device_id)
-            if not verdict.allowed:
-                await record_audit(audit, ident=ident, verdict=verdict, device_id=tool.device_id,
-                                   action=tool.name, params={}, result=verdict.error())
-                return verdict.error()
-        if not bridge.is_device_online(tool.device_id):
-            return {
-                "error": "DEVICE_OFFLINE",
-                "message": f"Device '{tool.device_id}' is offline. Cannot read {tool.source_name}.",
-                "device_id": tool.device_id,
-            }
-        result = bridge.get_latest_reading(tool.device_id, tool.source_name)
-        await record_audit(audit, ident=ident, verdict=_ALLOW if gate else None,
-                           device_id=tool.device_id, action=tool.name, params={}, result=result)
-        return result
+        return await pipeline.read(tool, current_identity(), _gate(mcp))
 
     mcp.tool(name=tool.name, description=tool.description)(read_handler)
 
@@ -112,80 +105,12 @@ def _build_action_signature(params: list[ToolParameter]) -> inspect.Signature:
 
 
 def _register_action_tool(
-    mcp: FastMCP,
-    tool: CompiledTool,
-    bridge: MqttBridge,
-    safety: SafetyLayer,
-    audit: AuditLog,
+    mcp: FastMCP, tool: CompiledTool, route: CommandRoute, pipeline: ActionPipeline
 ) -> None:
     """Register an action tool (actuator command) on the MCP server."""
 
     async def _execute(params: dict[str, Any]) -> dict[str, Any]:
-        gate, ident = _gate(mcp), current_identity()
-        dangerous = not tool.safe or safety.is_dangerous(tool.device_id, tool.name)
-        verdict = (
-            gate.check_scope(ident, tool.device_id, tool.source_name, dangerous) if gate else None
-        )
-        if verdict and not verdict.allowed:
-            return await _deny(audit, tool, params, ident, verdict)
-        try:
-            # Sync heartbeat from telemetry before deadman check
-            safety.update_heartbeat_from_telemetry(
-                tool.device_id,
-                bridge.get_last_telemetry_time(tool.device_id),
-            )
-            safety.guards.check_estop(tool.device_id, tool.name)
-            safety.check_permission(tool.device_id, tool.name)
-            safety.check_rate_limit(tool.device_id, tool.name)
-            safety.check_deadman_switch(tool.device_id)
-        except SafetyError as e:
-            error_result = {"error": e.code, "message": e.message}
-            await record_audit(audit, ident=ident, verdict=verdict, device_id=tool.device_id,
-                               action=tool.name, params=params, result=error_result)
-            return error_result
-
-        confirmed = False
-        if safety.is_dangerous(tool.device_id, tool.name):
-            safety.require_confirmation(tool.name, params)
-            confirmed = True
-        if gate and ident and dangerous:
-            verdict = await gate.wait_approval(ident, tool.device_id, tool.source_name, params)
-            if verdict.allowed:
-                verdict = recheck_safety(safety, bridge, tool.device_id, tool.name) or verdict
-            if not verdict.allowed:
-                return await _deny(audit, tool, params, ident, verdict)
-
-        target = tool.source_name.replace("set", "").lower() + "1"
-        value = params.get("state", params)
-
-        try:
-            action_id = await bridge.send_command(
-                device_id=tool.device_id,
-                target=target,
-                command="set",
-                value=value,
-            )
-        except RuntimeError as e:
-            error_result = {
-                "error": "COMMAND_FAILED",
-                "message": str(e),
-                "device_id": tool.device_id,
-            }
-            await record_audit(audit, ident=ident, verdict=verdict, device_id=tool.device_id,
-                               action=tool.name, params=params, result=error_result)
-            return error_result
-
-        result = {
-            "status": "command_sent",
-            "action_id": action_id,
-            "device_id": tool.device_id,
-            "target": target,
-            "value": value,
-        }
-
-        await record_audit(audit, ident=ident, verdict=verdict, device_id=tool.device_id,
-                           action=tool.name, params=params, result=result, confirmed=confirmed)
-        return result
+        return await pipeline.execute(tool, route, params, current_identity(), _gate(mcp))
 
     # Build a wrapper with explicit parameter signature for FastMCP.
     # FastMCP inspects __signature__ AND __annotations__ via get_type_hints().
@@ -216,21 +141,27 @@ def register_device_tools(
     safety: SafetyLayer,
     audit: AuditLog,
     device_prefix: str | None = None,
+    *,
+    device_id: str | None = None,
 ) -> list[str]:
     """Compile TD into tools and register them on the MCP server.
 
-    Returns list of registered tool names.
+    `device_id` is the MQTT id the bridge and safety layer know the device by; it
+    defaults to the TD id. Returns list of registered tool names.
     """
+    pipeline = _pipeline_for(mcp, bridge, safety, audit)
     tools = compile_tools(td, device_prefix=device_prefix)
+    if device_id is not None:
+        tools = [t.model_copy(update={"device_id": device_id}) for t in tools]
     registered: list[str] = []
     for tool in tools:
         if tool.tool_type == "action" and tool.source_name == RESERVED_ACTION:
             logger.error("Refusing tool for action named '%s' (reserved scope)", RESERVED_ACTION)
             continue
         if tool.tool_type == "read":
-            _register_read_tool(mcp, tool, bridge, audit)
+            _register_read_tool(mcp, tool, pipeline)
         elif tool.tool_type == "action":
-            _register_action_tool(mcp, tool, bridge, safety, audit)
+            _register_action_tool(mcp, tool, command_route(td, tool.source_name), pipeline)
         registered.append(tool.name)
         logger.info("Registered MCP tool: %s", tool.name)
 
@@ -241,8 +172,9 @@ def register_meta_tools(
     mcp: FastMCP,
     bridge: MqttBridge,
     audit: AuditLog,
+    safety: SafetyLayer | None = None,
 ) -> None:
-    """Register meta-tools for device management and audit."""
+    """Register meta-tools for device management, audit and (with safety) the e-stop trip."""
 
     @mcp.tool()
     async def list_devices() -> dict[str, Any]:
@@ -289,6 +221,21 @@ def register_meta_tools(
             return v.error()
         entries = await audit.get_recent(device_id=device_id, limit=limit)
         return {"entries": entries, "count": len(entries)}
+
+    if safety is None:
+        return
+    pipeline = _pipeline_for(mcp, bridge, safety, audit)
+
+    @mcp.tool()
+    async def emergency_stop(device_id: str, reason: str = "") -> dict[str, Any]:
+        """Latch the emergency stop for a device: it refuses motion until a human resets it.
+
+        Agents can stop a device but can never reset the stop.
+        """
+        known = device_id in bridge.get_devices()
+        return await pipeline.emergency_stop(
+            device_id, reason, known, current_identity(), _gate(mcp)
+        )
 
 
 def create_mcp_server(name: str = "ThingWire") -> FastMCP:

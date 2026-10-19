@@ -32,8 +32,8 @@ authorized reset the gateway publishes `{"reset": true}` (not retained) to `{id}
 
 Broker ACL profile (`docker/mosquitto-acl.conf`, `docs/security-broker.md`): a device may publish
 only `td|telemetry|status|event|safety_status` under its own id and subscribe to `command` and
-`estop`; user `thingwire-gateway` publishes `command` and `estop`. The gateway does not read MQTT
-credentials yet, so it cannot join the ACL broker (PLANNED).
+`estop`; user `thingwire-gateway` publishes `command` and `estop`. The gateway logs in with
+`THINGWIRE_MQTT_USERNAME` / `THINGWIRE_MQTT_PASSWORD` (empty username means anonymous).
 
 ### 1.1 Telemetry payload
 
@@ -51,10 +51,12 @@ message with a timestamp also counts as a heartbeat for the deadman switch.
 {"action_id": "<uuid4>", "target": "<action name>", "command": "<action name>", "value": {}}
 ```
 
-`value` is the action input object (for example `{"pan": 10, "tilt": 0}`). Devices must accept
-the action name from `command`, falling back to `action` (see `virtual_desk_bot.py::_action_name`).
-The exact `target` versus `command` split for non-desk devices is defined by the TD form of
-the action; treat the desk bot as the reference.
+`value` is the action input object after the safety layer validated it (`Decision.params`,
+clamped when `out_of_range: clamp`), for example `{"pan": 10, "tilt": 0}`. Inputs the caller
+omitted are left out. Devices must accept the action name from `command`, falling back to
+`action` (see `virtual_desk_bot.py::_action_name`). `target` and `command` are the TD action
+name unless the action's `invokeaction` form declares `thingwire:target` and/or
+`thingwire:command`, which then replace them. The gateway never derives them from the name.
 
 ### 1.3 Ack payload (device to gateway, on `status`)
 
@@ -103,19 +105,32 @@ checks. The device must enforce the same limit on its own (firmware `servo_head`
 
 Each property becomes `read_<slug>` and each action `do_<slug>`; with a device prefix the name is
 `<prefix>_read_<slug>` / `<prefix>_do_<slug>` (`tool_compiler.py`). Example: `do_look_at`,
-`do_sweep`. The slug lowercases and replaces non-alphanumerics with `_`.
+`do_sweep`. The slug lowercases and replaces non-alphanumerics with `_`. Tools are keyed by the
+MQTT device id. The safety layer and MCAP name an action `do_<TD action name>` (unslugged); the
+audit log `action` column holds the tool name.
+
+Read results carry provenance: `origin` (`device_telemetry`, or `untrusted_perception` for
+properties in `taint.perception_properties` and implausible scans) and `taint_id`. Properties
+under `taint.scans` also carry `plausible` and, when false, `plausibility_findings`.
+
+Meta tools: `list_devices`, `get_device_status(device_id)`, `get_audit_log(device_id, limit)`
+(scope `audit:read`), and `emergency_stop(device_id, reason)` (scope `device:<id>:read`), which
+latches the e-stop for a known device. No MCP tool resets an e-stop; only
+`thingwire estop reset` on the gateway host does (section 7).
 
 ## 3. Scopes (issued by theAuth)
 
 | Scope | Meaning | Status |
 | --- | --- | --- |
-| `taint:override` | lets a tainted-context action proceed without interactive approval | config key exists (`taint.extra_scope`); minting PLANNED (W3) |
-| `device:<id>:read` | read properties and events | PLANNED (W3 identity) |
-| `device:<id>:act:<action>` | call one action | PLANNED (W3 identity) |
-| `device:<id>:act:dangerous` | additionally required for `safe: false` actions; human approval still required | PLANNED (W3 identity) |
+| `taint:override` | lets a tainted-context action proceed without interactive approval | checked by the gateway (`taint.extra_scope`) |
+| `device:<id>:read` | read properties and events, list the device, trip its e-stop | checked by the gateway (http transport) |
+| `device:<id>:act:<action>` | call one action | checked by the gateway (http transport) |
+| `device:<id>:act:dangerous` | alternative to `act:<action>` for `safe: false` actions; human approval still required | checked by the gateway (http transport) |
+| `audit:read` | `get_audit_log` | checked by the gateway (http transport) |
 
-The audit log and recorder already carry a `scopes` field (list of strings) so the format is fixed
-now; the gateway does not mint or verify scopes yet.
+The gateway verifies scopes only on the identity-enabled http transport. In stdio dev mode
+there is no identity: safe actions run, and any call that needs a human approval (dangerous or
+tainted) is denied with `APPROVAL_REQUIRED`.
 
 ## 4. Audit log (SQLite, `data/audit.db`, table `commands`)
 
@@ -166,7 +181,10 @@ with `source` `safety`, `action` `safety:<event>`, `decision` `transition`,
 | `DENIAL_FLOOD` | no | `safety_flood.py` | repeated denials throttled per (device, action) |
 | `RESET_NOT_AUTHORIZED` | no | `safety_estop.py` | caller not in `global.estop.authorized_resetters` |
 | `ESTOP_STATE_UNAVAILABLE` | no | `safety_estop.py` | latch state unreadable, fail closed |
-| `MISSING_SCOPE` | no | identity layer | **PLANNED** (W3) |
+| `MISSING_SCOPE` | no | gateway (identity) | token lacks the scope; audit `reason` is `missing scope` |
+| `IDENTITY_DENIED` | no | gateway (identity) | unauthenticated, invalid or reserved name |
+| `APPROVAL_DENIED` | no | gateway (theAuth) | approval refused, expired, timed out or unavailable |
+| `DEVICE_OFFLINE` | no | gateway | device went offline while the approval was pending |
 
 The enum is `DecisionCode` in `src/thingwire/safety_codes.py`. Taint policy codes
 (`taint_policy.py`, strings, not in the enum yet): `TAINTED_CONTEXT_REQUIRES_APPROVAL`,
@@ -181,7 +199,12 @@ New codes are UPPER_SNAKE_CASE strings. Adding one is a contract change. Config 
 (`max_calls` 10, `window_seconds` 60), `global.out_of_range` (`reject` or `clamp`), `global.estop.authorized_resetters` (default
 `[operator]`), `global.denial_flood` (`threshold` 20, `window_seconds` 60, `counted_codes`), and the
 top-level `taint:` section (`enabled`, `extra_scope` `taint:override`, `untrusted_origins`,
-`default_mode`, `read_actions`, `actions`).
+`default_mode`, `read_actions`, `actions`, and for the gateway taint tracker
+`perception_properties`, `context_window_seconds` (300), `max_context_entries` (256), `scans`
+(property name to `ScanSpec` fields)). The gateway evaluates `TaintPolicy` on every action call:
+the context is the provenance of values the same agent read within the window whose numbers
+reappear in the call's numeric arguments. `require_approval` asks theAuth; `approved` comes only
+from a theAuth approval, never from tool arguments.
 
 ## 6. MCAP recording (`recorder.py`)
 
@@ -191,7 +214,7 @@ Each channel is registered with topic = channel name, message encoding `json`, s
 
 | Channel | Fields |
 | --- | --- |
-| `tool_call` | `seq` number, `device_id`, `action`, `params` object, `approved` bool, `agent_id`, `delegation_chain[]`, `scopes[]` |
+| `tool_call` | `seq` number, `device_id`, `action`, `params` object, `approved` bool, `agent_id`, `delegation_chain[]`, `scopes[]`, optional `stage` |
 | `decision` | `call_seq` number (matches `tool_call.seq`), `device_id`, `action`, `allowed` bool, `code`, `message`, `agent_id`, `delegation_chain[]`, `scopes[]` |
 | `telemetry` | `device_id`, `readings` object |
 | `td` | `device_id`, `td` object |
@@ -200,3 +223,22 @@ Each channel is registered with topic = channel name, message encoding `json`, s
 Replay (`thingwire replay <file.mcap>`) re-runs `tool_call` records through the safety layer and
 compares each result to the recorded `decision` by `call_seq`; it must be deterministic.
 Identity fields are optional and only present when known.
+
+The gateway records every action call and its decision, allowed or denied. A call decided
+before the safety layer carries `stage`: `identity`, `taint`, `approval` or `precheck` (a
+safety check run before asking a human); replay skips those. Every telemetry message is
+recorded on `telemetry`, and each one with a `timestamp` is also the deadman heartbeat, recorded
+on `heartbeat`, so replay sees the same heartbeats as the live gateway. `td` is recorded when a
+device is registered. Recording is on when `THINGWIRE_RECORD_PATH` (or `serve --record`) is set.
+
+## 7. E-stop state and human reset
+
+The latch persists in SQLite at `THINGWIRE_SAFETY_STATE_DB_PATH` (default
+`data/safety_state.db`, mode 0600), table `estop_latch`. Agents trip through MQTT or the
+`emergency_stop` tool; reset is human only: `thingwire estop reset` inserts a row into
+`estop_reset_requests` (`id`, `scope` device id or `*`, `who`, `reason`, `requested_at` epoch
+seconds, `outcome`, `handled_at`). The gateway's safety sweep (every
+`THINGWIRE_SAFETY_SWEEP_SECONDS`) also trips the deadman, and applies each pending request:
+`outcome` is `reset`, `not_latched`, `expired` (older than `THINGWIRE_ESTOP_RESET_TTL_SECONDS`)
+or `refused:<code>`. `THINGWIRE_ESTOP_RESETTERS` (comma separated) overrides
+`global.estop.authorized_resetters`.
