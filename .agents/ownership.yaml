@@ -68,7 +68,17 @@ rules:
   - branch: "feat/broker-acl-*"
     paths: ["docker/mosquitto*", "docker/acl*", "tests/test_broker_acl*.py"]
   - branch: "feat/integration-*"
-    paths: ["tests/test_e2e*.py", "examples/**", "docs/**"]
+    paths:
+      - "tests/test_e2e*.py"
+      - "examples/**"
+      - "docs/**"
+      - "src/thingwire/gateway_*.py"
+      - "src/thingwire/mqtt_*.py"
+      - "src/thingwire/__main__.py"
+      - "src/thingwire/config.py"
+      - "src/thingwire/recorder.py"
+      - "src/thingwire/td_loader.py"
+      - ".agents/strict-files.txt"
   - branch: "fix/*"
     paths: ["src/**", "tests/**", "scripts/**", "docs/**", "firmware/**"]
   - branch: "docs/contracts-*"
