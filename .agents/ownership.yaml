@@ -1,0 +1,91 @@
+# Who may edit what. Read by scripts/check_ownership.py (CI job "ownership").
+# Edit by hand. Patterns: "*" matches within one directory, "**" matches across directories.
+#
+# How a PR is judged, in order:
+#   1. Branch matches a `skip` pattern: not checked (release PRs get human review).
+#   2. Branch matches no `rules` entry: FAIL (fail closed, add a rule here in its own PR).
+#   3. Any changed file matches `shared`: FAIL unless the PR has the label `shared-file-ok`.
+#   4. Any changed file outside the matching rule's `paths` and outside `common`: FAIL.
+
+version: 1
+label: shared-file-ok
+
+skip:
+  - "release/*"
+
+# Files many workstreams need. Changing one needs the label, which the owner or
+# orchestrator applies after reading the request in the PR body (see AGENTS.md).
+shared:
+  - pyproject.toml
+  - uv.lock
+  - src/thingwire/cli.py
+  - src/thingwire/mcp_server.py
+  - src/thingwire/safety.py
+  - src/thingwire/audit_log.py
+  - "td-library/**"
+  - firmware/src/config.h
+
+# Any branch may touch these (status board only).
+common:
+  - docs/agents/TASKS.md
+
+rules:
+  - branch: "chore/agent-environment"
+    paths:
+      - AGENTS.md
+      - CLAUDE.md
+      - .gitignore
+      - Makefile
+      - ".agents/**"
+      - ".github/**"
+      - docs/contracts.md
+      - "docs/agents/**"
+      - scripts/check_ownership.py
+      - scripts/check_dashes.py
+      - scripts/agent_worktree.sh
+      - tests/test_check_ownership.py
+      - tests/test_check_dashes.py
+  - branch: "chore/w0-*"
+    paths: [CLAUDE.md, ".github/workflows/**", .gitignore]
+  - branch: "feat/w1-*"
+    paths: ["scripts/virtual_desk_bot.py", scripts/scene.yaml, "viewer/**", "docker/mosquitto*", tests/test_virtual_desk_bot.py]
+  - branch: "feat/w2-*"
+    paths: ["src/thingwire/safety_*.py", safety_config.yaml, "tests/test_safety*.py", docs/safety.md]
+  - branch: "feat/w3-*"
+    paths: ["docker/theauth/**", "src/thingwire/identity*.py", "tests/test_identity*.py"]
+  - branch: "feat/w4-*"
+    paths: ["src/thingwire/recorder.py", tests/test_recorder.py]
+  - branch: "feat/w5-*"
+    paths: ["firmware/**", docs/desk-bot-wiring.md, tests/test_deskbot_td_match.py]
+  - branch: "feat/w6-*"
+    paths: ["examples/injection-demo/**", "tests/test_injection*.py"]
+  - branch: "feat/w7-*"
+    paths: ["src/thingwire/ros2*.py", "tests/test_ros2*.py", "docs/ros2*.md"]
+  - branch: "feat/estop-*"
+    paths: ["src/thingwire/safety_*.py", "tests/test_estop*.py", "firmware/src/deskbot_*", "scripts/virtual_desk_bot.py"]
+  - branch: "feat/provenance-*"
+    paths: ["src/thingwire/provenance*.py", "tests/test_provenance*.py"]
+  - branch: "feat/broker-acl-*"
+    paths: ["docker/mosquitto*", "docker/acl*", "tests/test_broker_acl*.py"]
+  - branch: "feat/integration-*"
+    paths:
+      - "tests/test_e2e*.py"
+      - "examples/**"
+      - "docs/**"
+      - "src/thingwire/gateway_*.py"
+      - "src/thingwire/mqtt_*.py"
+      - "src/thingwire/__main__.py"
+      - "src/thingwire/config.py"
+      - "src/thingwire/recorder.py"
+      - "src/thingwire/td_loader.py"
+      - ".agents/strict-files.txt"
+  - branch: "fix/*"
+    paths: ["src/**", "tests/**", "scripts/**", "docs/**", "firmware/**"]
+  - branch: "docs/contracts-*"
+    paths: [docs/contracts.md]
+  - branch: "docs/*"
+    paths: ["docs/**", "*.md", "examples/**"]
+  - branch: "chore/lint-*"
+    paths: ["src/**", "tests/**", "scripts/**", ".agents/strict-files.txt"]
+  - branch: "hotfix/*"
+    paths: ["**"]

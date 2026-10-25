@@ -1,0 +1,31 @@
+# Legacy files that already contain em or en dashes (written before the rule existed).
+# Reason for all: pre-existing debt, owned by other workstreams. Only NEW lines are checked in these.
+# Delete an entry when its file is cleaned. Never add an entry for new work.
+CONTRIBUTING.md
+SECURITY.md
+docs/architecture.md
+docs/wot-td-guide.md
+examples/demo-motion-alert/device-td.json
+examples/demo-temperature-relay/agent-script.py
+examples/demo-temperature-relay/device-td.json
+firmware/src/mqtt_client.h
+firmware/src/sensor_registry.h
+firmware/src/wifi_manager.cpp
+firmware/src/wifi_manager.h
+npm/index.js
+scripts/virtual_device.py
+src/thingwire/__init__.py
+src/thingwire/audit_log.py
+src/thingwire/cli.py
+src/thingwire/device_roster.py
+src/thingwire/ha_discovery.py
+src/thingwire/mcp_server.py
+src/thingwire/mqtt_bridge.py
+src/thingwire/safety.py
+src/thingwire/td_loader.py
+src/thingwire/tool_compiler.py
+td-library/README.md
+tests/test_hardening.py
+tests/test_integration.py
+tests/test_mqtt_bridge.py
+tests/test_td_loader.py

@@ -1,0 +1,8 @@
+# Review ownership. Pair with branch protection "Require review from Code Owners" on main.
+/src/thingwire/safety*.py     @thegdsks
+/src/thingwire/identity*.py   @thegdsks
+/docker/theauth/              @thegdsks
+/.github/                     @thegdsks
+/pyproject.toml               @thegdsks
+/.agents/                     @thegdsks
+/AGENTS.md                    @thegdsks

@@ -193,6 +193,22 @@ After generating, flash the firmware:
 cd firmware && pio run --target upload
 ```
 
+### `thingwire estop`
+
+Emergency stop status and the human-only reset. Agents can trip a stop through the
+`emergency_stop` MCP tool; no MCP tool can reset one.
+
+```bash
+thingwire estop status
+thingwire estop reset --device desk-bot-1 --who operator --reason "area clear"
+thingwire estop reset --all --who operator --reason "global stop cleared"
+```
+
+`reset` runs on the gateway host: it files a request in the safety state DB and waits
+(`--wait`, default 15 s) for the running gateway to apply it on its next sweep. The gateway
+checks `--who` against the authorized resetters; a request older than
+`THINGWIRE_ESTOP_RESET_TTL_SECONDS` expires. Exit code 0 means reset (or nothing latched).
+
 ## Environment Variables
 
 All gateway settings can also be set via environment variables prefixed with `THINGWIRE_`:
@@ -207,5 +223,12 @@ All gateway settings can also be set via environment variables prefixed with `TH
 | `THINGWIRE_LOG_LEVEL` | `INFO` | Log level |
 | `THINGWIRE_TRANSPORT` | `stdio` | MCP transport |
 | `THINGWIRE_HA_DISCOVERY` | `0` | Enable HA discovery (`1` to enable) |
+| `THINGWIRE_MQTT_USERNAME` | empty | Broker login (ACL profile user `thingwire-gateway`); empty means anonymous |
+| `THINGWIRE_MQTT_PASSWORD` | empty | Broker password; never logged |
+| `THINGWIRE_SAFETY_STATE_DB_PATH` | `data/safety_state.db` | Latched e-stop state and the reset inbox (mode 0600) |
+| `THINGWIRE_ESTOP_RESETTERS` | empty | Comma separated names allowed to reset; overrides `global.estop.authorized_resetters` |
+| `THINGWIRE_ESTOP_RESET_TTL_SECONDS` | `60` | A reset request older than this expires unapplied |
+| `THINGWIRE_SAFETY_SWEEP_SECONDS` | `5` | Deadman sweep and reset inbox interval |
+| `THINGWIRE_RECORD_PATH` | empty | Record the session to this MCAP file (`serve --record`) |
 
 CLI flags take precedence over environment variables.

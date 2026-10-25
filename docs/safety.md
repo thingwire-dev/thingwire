@@ -56,6 +56,28 @@ Every tool call is recorded to SQLite:
 
 Query the audit log via the `get_audit_log` MCP tool or directly via SQLite.
 
+## Gateway order
+
+Every action tool call takes one path (`src/thingwire/gateway_actions.py`), and every step
+fails closed:
+
+1. Identity scope (http transport only).
+2. Taint policy: numbers the same agent read from untrusted sensors reappearing in the call.
+3. Human approval through theAuth for dangerous (`safe: false`) or tainted calls. Without
+   identity (stdio) such calls are denied; a tool argument can never approve anything.
+4. `SafetyLayer.evaluate`: e-stop latch, denial flood, allowlist, deadman, approval, range and
+   slew, rate limit.
+5. The validated `Decision.params` are sent to the TD action.
+
+Each allow and deny is written to the audit log and, with `--record`, to MCAP.
+
+## Emergency stop
+
+Any non-retained message on `thingwire/<id>/estop` or `thingwire/estop`, the `emergency_stop`
+MCP tool, or a deadman timeout latches the stop. The latch survives restarts. Only a human on
+the gateway host can clear it: `thingwire estop reset --device <id> --who <name> --reason ...`
+(see `docs/cli-reference.md`).
+
 ## Configuration
 
 Edit `gateway/safety_config.yaml` to customize rules. The gateway auto-generates rules for newly discovered devices, but explicit config takes precedence.

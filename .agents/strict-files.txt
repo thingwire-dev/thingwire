@@ -1,0 +1,36 @@
+# Files that are clean under `ruff check` and `mypy --strict`. Both are BLOCKING for these.
+# Ratchet: add a file when you clean it, never remove one. Everything else is report-only.
+src/thingwire/__init__.py
+src/thingwire/audit_log.py
+src/thingwire/config.py
+src/thingwire/device_roster.py
+src/thingwire/ha_discovery.py
+src/thingwire/recorder.py
+src/thingwire/safety_motion.py
+src/thingwire/td_loader.py
+src/thingwire/tool_compiler.py
+tests/__init__.py
+tests/test_audit_log.py
+tests/test_deadman.py
+tests/test_ha_discovery.py
+tests/test_recorder.py
+tests/test_safety.py
+tests/test_safety_motion.py
+tests/test_td_loader.py
+scripts/check_ownership.py
+scripts/check_dashes.py
+tests/test_check_ownership.py
+tests/test_check_dashes.py
+src/thingwire/mqtt_bridge.py
+src/thingwire/mqtt_connection.py
+src/thingwire/mqtt_devices.py
+src/thingwire/__main__.py
+src/thingwire/mcp_server.py
+src/thingwire/gateway_actions.py
+src/thingwire/gateway_base.py
+src/thingwire/gateway_estop.py
+src/thingwire/gateway_runtime.py
+src/thingwire/gateway_taint.py
+tests/test_e2e_http.py
+tests/test_e2e_runtime.py
+tests/test_e2e_wiring.py
