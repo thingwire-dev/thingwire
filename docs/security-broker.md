@@ -30,8 +30,27 @@ Never commit or log `credentials.json`. Device ids must match
 | `thingwire-gateway` | `thingwire/+/command`, `thingwire/+/estop`, `thingwire/estop` | `thingwire/+/td\|telemetry\|status\|event\|safety_status` |
 
 Everything else is denied. The ACL profile has no WebSocket listener, so the
-browser viewer works only with the default broker. The gateway process does not yet
-read MQTT credentials from its config, so it cannot connect to the ACL broker
-until that support lands. Anonymous access is disabled and the password file
+browser viewer works only with the default broker. Anonymous access is disabled and the password file
 holds only hashes, but plaintext passwords must still be delivered to devices
 out of band. There is no TLS yet, so credentials cross the network in clear.
+
+## Gateway login
+
+The gateway reads its broker login from the environment:
+
+```bash
+export THINGWIRE_MQTT_PORT=1884
+export THINGWIRE_MQTT_USERNAME=thingwire-gateway
+export THINGWIRE_MQTT_PASSWORD="$(jq -r '.["thingwire-gateway"]' docker/acl/credentials.json)"
+thingwire serve
+```
+
+The password is held as a secret and never logged. A refused login shows as a connection
+failure naming these variables.
+
+Known gaps in the generated ACL (to fix in `scripts/gen_broker_acl.py`): the gateway user
+may not publish `safety_status` (so the retained status and the reset echo are dropped by
+the broker) and may not subscribe to `estop` topics (so a physical stop button publishing to
+the broker cannot reach the gateway). Devices may publish their own `safety_status`, which a
+viewer cannot tell apart from the gateway's.
+

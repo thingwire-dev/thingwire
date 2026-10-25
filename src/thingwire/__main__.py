@@ -9,25 +9,30 @@ import logging
 import os
 import signal
 import sys
+from typing import Any
 
 from thingwire import __version__
 from thingwire.audit_log import AuditLog
 from thingwire.config import GatewayConfig
-from thingwire.mcp_server import create_mcp_server, register_device_tools, register_meta_tools
+from thingwire.device_roster import DeviceRoster
+from thingwire.gateway_runtime import Gateway, build_gateway
+from thingwire.mcp_server import create_mcp_server
 from thingwire.mqtt_bridge import MqttBridge
-from thingwire.safety import SafetyLayer
 
 logger = logging.getLogger("gateway")
 
 # Components tracked for ordered shutdown
 _bridge: MqttBridge | None = None
 _audit: AuditLog | None = None
+_gateway: Gateway | None = None
 _shutdown_tasks: set[asyncio.Task[None]] = set()
 
 
 async def _shutdown() -> None:
-    """Ordered shutdown: MCP stops first, then MQTT, then audit log."""
+    """Ordered shutdown: MCP stops first, then sweeps and recorder, MQTT, audit log."""
     logger.info("Shutting down...")
+    if _gateway:
+        await _gateway.stop()
     if _bridge:
         await _bridge.disconnect()
     if _audit:
@@ -45,9 +50,18 @@ def _handle_signal(sig: int, _frame: object) -> None:
         task.add_done_callback(_shutdown_tasks.discard)
 
 
+def _publish_ha(gw: Gateway, device_id: str) -> None:
+    td = gw.bridge.get_td(device_id)
+    if td and gw.bridge._client:
+        from thingwire.ha_discovery import publish_ha_discovery
+
+        count = publish_ha_discovery(gw.bridge._client, td, device_id)
+        logger.info("Published %d HA discovery messages for %s", count, device_id)
+
+
 async def setup(config: GatewayConfig) -> None:
     """Initialize all components and start the MCP server."""
-    global _bridge, _audit
+    global _bridge, _audit, _gateway
 
     # Initialize audit log
     db_dir = os.path.dirname(config.audit_db_path)
@@ -56,17 +70,18 @@ async def setup(config: GatewayConfig) -> None:
     _audit = AuditLog(config.audit_db_path)
     await _audit.initialize()
 
-    # Initialize safety layer
-    safety = SafetyLayer(config.safety_config_path)
-
     # Load device roster (persisted TDs from previous runs)
-    from thingwire.device_roster import DeviceRoster
-
     roster = DeviceRoster(config.device_roster_path)
     saved_devices = roster.load()
 
-    # Connect to MQTT
+    # Gateway pieces: safety (persistent e-stop), recorder, pipeline, meta tools
+    mcp = create_mcp_server()
     _bridge = MqttBridge(config)
+    gw = _gateway = build_gateway(config, mcp, _bridge, _audit)
+    loop = asyncio.get_running_loop()
+    gw.start_background(loop)  # e-stop topics, telemetry heartbeat, deadman sweep
+
+    # Connect to MQTT
     logger.info("Connecting to MQTT broker at %s:%d...", config.mqtt_broker, config.mqtt_port)
     await _bridge.connect()
 
@@ -86,53 +101,31 @@ async def setup(config: GatewayConfig) -> None:
     if not devices:
         logger.warning("No devices discovered. MCP server will start with meta-tools only.")
 
-    # Create MCP server
-    mcp = create_mcp_server()
-
     # Home Assistant MQTT discovery
     ha_enabled = os.environ.get("THINGWIRE_HA_DISCOVERY") == "1"
 
-    # Register device tools
-    for device_id in devices:
-        td = _bridge.get_td(device_id)
-        if td:
-            raw_td = _bridge._devices.get(device_id, {})
-            safety.register_device(device_id, raw_td)
-            try:
-                tools = register_device_tools(mcp, td, _bridge, safety, _audit)
-                logger.info("Registered %d tools for device %s", len(tools), device_id)
-            except Exception:
-                logger.exception("Failed to register tools for device %s, skipping", device_id)
-
-            if ha_enabled and _bridge._client:
-                from thingwire.ha_discovery import publish_ha_discovery
-
-                count = publish_ha_discovery(_bridge._client, td, device_id)
-                logger.info("Published %d HA discovery messages for %s", count, device_id)
-
-    # Dynamic registration for devices that connect after boot
-    def _on_new_device(device_id: str, raw_td: dict) -> None:  # type: ignore[type-arg]
-        td = _bridge.get_td(device_id)
-        if not td:
-            return
-        safety.register_device(device_id, raw_td)
+    def _register(device_id: str, raw_td: dict[str, Any]) -> None:
         try:
-            tools = register_device_tools(mcp, td, _bridge, safety, _audit)
-            logger.info("Dynamically registered %d tools for %s", len(tools), device_id)
+            tools = gw.register_device(device_id, raw_td)
+            logger.info("Registered %d tools for device %s", len(tools), device_id)
         except Exception:
-            logger.exception("Failed to dynamically register %s", device_id)
+            logger.exception("Failed to register tools for device %s, skipping", device_id)
+            return
+        if ha_enabled:
+            _publish_ha(gw, device_id)
 
-        if ha_enabled and _bridge._client:
-            from thingwire.ha_discovery import publish_ha_discovery
+    for device_id in devices:
+        _register(device_id, _bridge._devices.get(device_id, {}))
 
-            publish_ha_discovery(_bridge._client, td, device_id)
+    # Dynamic registration for devices that connect after boot (TD arrives on the MQTT thread)
+    def _on_new_device(device_id: str, raw_td: dict[str, Any]) -> None:
+        def _apply() -> None:
+            _register(device_id, raw_td)
+            roster.add_device(device_id, raw_td)
 
-        roster.add_device(device_id, raw_td)
+        loop.call_soon_threadsafe(_apply)
 
     _bridge.on_device_discovered = _on_new_device
-
-    # Register meta-tools
-    register_meta_tools(mcp, _bridge, _audit)
 
     # Start MCP server
     transport = os.environ.get("THINGWIRE_TRANSPORT", "stdio")
@@ -140,7 +133,9 @@ async def setup(config: GatewayConfig) -> None:
 
     try:
         if transport == "sse":
-            await mcp.run_sse_async()
+            # sse has no identity layer; create_mcp_server already enforced a loopback host
+            host = os.environ.get("THINGWIRE_SSE_HOST") or "127.0.0.1"
+            await mcp.run_http_async(transport="sse", host=host)
         else:
             await mcp.run_async(transport="stdio")
     finally:
