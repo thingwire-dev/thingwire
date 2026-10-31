@@ -18,8 +18,10 @@ from thingwire.safety_codes import DecisionCode, SafetyError
 from thingwire.safety_defaults import default_config
 from thingwire.safety_freshness import EpochClock, FreshnessConfig
 from thingwire.safety_guards import SafetyGuards
-from thingwire.safety_motion import AxisLimit, Decision, MotionGuard, extract_limits
+from thingwire.safety_motion import AxisLimit, Decision, MotionGuard
+from thingwire.safety_pins import FlagBook, TdTrust
 from thingwire.safety_ratelimit import RateLimiterBook, RateLimitWindow, resolve_limits
+from thingwire.safety_register import derive_rules
 from thingwire.safety_status import SafetyTransition
 
 __all__ = ["RateLimitWindow", "SafetyError", "SafetyLayer"]
@@ -56,6 +58,8 @@ class SafetyLayer:
             glob = self._config.setdefault("global", {})
             estop = dict(glob.get("estop") or {})
             glob["estop"] = {**estop, "authorized_resetters": list(authorized_resetters)}
+        self._trust = TdTrust.from_config(self._config)
+        self.td_flags = FlagBook()
         self._fresh = FreshnessConfig.from_config(self._config.get("global", {})).guard(epoch_clock)
         mode = str(self._config.get("global", {}).get("out_of_range", "reject")).lower()
         self._motion = MotionGuard(clock, "clamp" if mode == "clamp" else "reject")
@@ -85,32 +89,22 @@ class SafetyLayer:
         return self._config
 
     def register_device(self, device_id: str, td: dict[str, Any]) -> None:
-        """Register a device and auto-generate safety rules from its TD."""
+        """Register a device; its rules come from the TD merged with the operator's pins."""
         self.guards.known(device_id)
         if device_id in self._config.get("devices", {}):
-            return  # Already configured explicitly
-
-        actions = td.get("actions", {})
-        allowed_actions: list[str] = []
-        dangerous_actions: list[str] = []
-
-        # Auto-detect from TD
-        for name in td.get("properties", {}):
-            allowed_actions.append(f"read_{name}")
-        for name, action in actions.items():
-            allowed_actions.append(f"do_{name}")
-            limits = extract_limits(action, td.get("properties"))
+            return  # Already configured explicitly (or by an earlier TD: the first one wins)
+        rules = derive_rules(device_id, td, self._trust)
+        for action, limits in rules.limits.items():
             if limits:
-                self._limits[(device_id, f"do_{name}")] = limits
-            if not action.get("safe", True):
-                dangerous_actions.append(f"do_{name}")
-
+                self._limits[(device_id, action)] = limits
         self._config.setdefault("devices", {})[device_id] = {
-            "allowed_actions": allowed_actions,
-            "dangerous_actions": dangerous_actions,
+            "allowed_actions": rules.allowed,
+            "dangerous_actions": rules.dangerous,
             "rate_limits": {},
+            "td_unpinned": rules.unpinned_denied,
         }
         logger.info("Auto-registered safety rules for device %s", device_id)
+        self.td_flags.emit(rules.flags)
 
     def check_permission(self, device_id: str, action: str) -> None:
         """Check if action is allowed for device. Raises SafetyError if not."""
@@ -122,8 +116,13 @@ class SafetyLayer:
                 f"Device '{device_id}' is not registered in safety config",
             )
 
-        allowed = device_config.get("allowed_actions", [])
-        if allowed and action not in allowed:
+        if device_config.get("td_unpinned") and not action.startswith("read_"):
+            raise SafetyError(
+                DecisionCode.TD_NOT_PINNED,
+                f"Device '{device_id}' has no pinned policy; actuation is denied (td_trust)",
+            )
+        allowed = device_config.get("allowed_actions")
+        if allowed is not None and action not in allowed:
             raise SafetyError(
                 "ACTION_NOT_ALLOWED",
                 f"Action '{action}' is not in the allowlist for device '{device_id}'. "

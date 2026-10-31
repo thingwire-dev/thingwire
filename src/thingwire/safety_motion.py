@@ -107,7 +107,7 @@ def extract_limits(
     return limits
 
 
-def _same(a: Any, b: Any) -> bool:
+def same_json(a: Any, b: Any) -> bool:
     """JSON equality: booleans only equal booleans, numbers equal numbers, no coercion."""
     if isinstance(a, bool) or isinstance(b, bool):
         return isinstance(a, bool) and isinstance(b, bool) and a == b
@@ -150,7 +150,7 @@ class MotionGuard:
         for axis, lim in limits.items():
             if axis not in out:
                 continue
-            if lim.enum is not None and not any(_same(out[axis], e) for e in lim.enum):
+            if lim.enum is not None and not any(same_json(out[axis], e) for e in lim.enum):
                 return _deny(
                     "INVALID_INPUT",
                     f"'{axis}' is not one of the allowed values",
