@@ -1,6 +1,7 @@
 """Decision codes, safety states and the SafetyError exception."""
 
 from enum import StrEnum
+from typing import Any
 
 
 class DecisionCode(StrEnum):
@@ -34,7 +35,8 @@ class SafetyState(StrEnum):
 class SafetyError(Exception):
     """Raised when a safety check fails."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, details: dict[str, Any] | None = None) -> None:
         self.code = code
         self.message = message
+        self.details = details or {}
         super().__init__(message)
