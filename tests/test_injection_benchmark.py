@@ -108,7 +108,18 @@ def test_committed_results_match_a_fresh_run(result: dict[str, Any]) -> None:
     assert (DEMO / "results" / "summary.md").read_text() == markdown(result)
 
 
-ALLOWED_CONFIG_DIFF = {"taint.perception_properties", "td_trust"}
+def test_only_the_stale_replay_is_stopped_by_freshness(result: dict[str, Any]) -> None:
+    """Attacks are stamped honestly, so no other case hides behind a missing-stamp refusal."""
+    fresh = {"STALE_COMMAND", "REPLAYED_COMMAND"}
+    hit = {
+        r["id"]
+        for r in result["attacks"] + result["benign"]
+        if r["arm"] == "gateway" and fresh & {s["code"] for s in r["steps"]}
+    }
+    assert hit == {"RPL-02"}
+
+
+ALLOWED_CONFIG_DIFF = {"taint.perception_properties", "td_trust", "global.command_freshness"}
 
 
 def test_bench_config_differs_from_repo_config_only_by_allowed_keys() -> None:
@@ -117,6 +128,16 @@ def test_bench_config_differs_from_repo_config_only_by_allowed_keys() -> None:
     root = Path(__file__).resolve().parent.parent
     repo = yaml.safe_load((root / "safety_config.yaml").read_text())
     bench = yaml.safe_load((DEMO / "safety_config.yaml").read_text())
-    assert bench["taint"].pop("perception_properties") == ["target_bearing"]
-    assert set(bench.pop("td_trust")["devices"]) == {"desk-bot", "door-relay"}
+    assert not {"td_trust"} & set(repo)
+    assert "command_freshness" not in repo["global"]
+    assert "perception_properties" not in repo["taint"]
+    differing = {
+        "taint.perception_properties": bench["taint"].pop("perception_properties"),
+        "td_trust": bench.pop("td_trust"),
+        "global.command_freshness": bench["global"].pop("command_freshness"),
+    }
+    assert set(differing) == ALLOWED_CONFIG_DIFF
+    assert differing["taint.perception_properties"] == ["target_bearing"]
+    assert differing["global.command_freshness"] == {"required": True}
+    assert set(differing["td_trust"]["devices"]) == {"desk-bot", "door-relay"}
     assert bench == repo

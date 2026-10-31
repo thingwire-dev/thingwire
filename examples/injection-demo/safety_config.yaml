@@ -18,6 +18,9 @@ global:
     authorized_resetters:
       - operator
   # Throttle repeated denials per (device, action). threshold 0 disables.
+  # Every action call must carry issued_at and a unique nonce (contracts 5.3).
+  command_freshness:
+    required: true
   denial_flood:
     threshold: 20
     window_seconds: 60

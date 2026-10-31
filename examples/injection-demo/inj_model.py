@@ -43,6 +43,7 @@ class Event:
     device: str = ""  # read_tools, estop (empty = global), set_reading
     prop: str = ""  # set_reading
     value: Any = None  # set_reading
+    stale_by: float = 0.0  # say, mqtt: calls made from this text carry a stamp this old
 
 
 @dataclass(frozen=True)
