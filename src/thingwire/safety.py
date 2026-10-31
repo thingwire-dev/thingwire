@@ -16,9 +16,10 @@ import yaml  # type: ignore[import-untyped]
 
 from thingwire.safety_codes import DecisionCode, SafetyError
 from thingwire.safety_defaults import default_config
+from thingwire.safety_freshness import EpochClock, FreshnessConfig
 from thingwire.safety_guards import SafetyGuards
 from thingwire.safety_motion import AxisLimit, Decision, MotionGuard, extract_limits
-from thingwire.safety_ratelimit import RateLimiterBook, RateLimitWindow
+from thingwire.safety_ratelimit import RateLimiterBook, RateLimitWindow, resolve_limits
 from thingwire.safety_status import SafetyTransition
 
 __all__ = ["RateLimitWindow", "SafetyError", "SafetyLayer"]
@@ -38,6 +39,7 @@ class SafetyLayer:
         wall_clock: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
         authorized_resetters: list[str] | None = None,
+        epoch_clock: EpochClock = time.time,
     ) -> None:
         self._clock = clock
         self._limits: dict[tuple[str, str], dict[str, AxisLimit]] = {}
@@ -54,6 +56,7 @@ class SafetyLayer:
             glob = self._config.setdefault("global", {})
             estop = dict(glob.get("estop") or {})
             glob["estop"] = {**estop, "authorized_resetters": list(authorized_resetters)}
+        self._fresh = FreshnessConfig.from_config(self._config.get("global", {})).guard(epoch_clock)
         mode = str(self._config.get("global", {}).get("out_of_range", "reject")).lower()
         self._motion = MotionGuard(clock, "clamp" if mode == "clamp" else "reject")
         extra: dict[str, Any] = {"id_factory": id_factory} if id_factory else {}
@@ -129,16 +132,8 @@ class SafetyLayer:
 
     def check_rate_limit(self, device_id: str, action: str) -> None:
         """Check the per action and per device windows. Raises SafetyError if either is full."""
-        cfg = self._config
-        device_config = cfg.get("devices", {}).get(device_id, {})
-        default = cfg.get("global", {}).get("default_rate_limit")
-        action_cfg = device_config.get("rate_limits", {}).get(action) or default
-        device_cfg = (
-            device_config.get("device_rate_limit")
-            or cfg.get("global", {}).get("device_rate_limit")
-            or default
-        )
-        full = self._rates.admit(device_id, action, action_cfg, device_cfg)
+        per_action, per_device = resolve_limits(self._config, device_id, action)
+        full = self._rates.admit(device_id, action, per_action, per_device)
         if full:
             scope, limiter = full
             raise SafetyError(
@@ -151,6 +146,17 @@ class SafetyLayer:
                     "window_seconds": limiter.window_seconds,
                 },
             )
+
+    def check_freshness(
+        self, device_id: str, action: str, issued_at: object, nonce: object
+    ) -> Decision | None:
+        """Judge a command stamp (contracts 5.3). None means fresh or not checked; else a denial."""
+        verdict = self._fresh.judge(device_id, issued_at, nonce)
+        if verdict is None:
+            return None
+        trace = self.guards.new_trace()
+        self.guards.observe(device_id, action, verdict.code, trace)
+        return replace(verdict, details={**verdict.details, "trace_id": trace})
 
     def is_dangerous(self, device_id: str, action: str) -> bool:
         """Check if an action is tagged as dangerous."""

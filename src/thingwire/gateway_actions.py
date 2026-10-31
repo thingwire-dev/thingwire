@@ -2,11 +2,12 @@
 
 Order for an action call, every step fails closed:
 1. identity scope (theAuth token), when the server runs with identity
-2. taint policy on sensor-derived numeric arguments
-3. human approval through theAuth for dangerous or tainted calls; without identity
+2. command freshness (issued_at window, nonce replay cache)
+3. taint policy on sensor-derived numeric arguments
+4. human approval through theAuth for dangerous or tainted calls; without identity
    such calls are denied (stdio dev mode cannot approve anything)
-4. `SafetyLayer.evaluate`, with `approved` only from a real theAuth approval
-5. publish `decision.params` (validated, possibly clamped) to the TD action's command
+5. `SafetyLayer.evaluate`, with `approved` only from a real theAuth approval
+6. publish `decision.params` (validated, possibly clamped) to the TD action's command
 
 Every allow and deny is written to the audit log and, when recording, to MCAP.
 """
@@ -56,8 +57,15 @@ class ActionPipeline(PipelineBase):
         params: dict[str, Any],
         ident: AgentIdentity | None,
         gate: Gatekeeper | None,
+        *,
+        issued_at: object = None,
+        nonce: object = None,
     ) -> dict[str, Any]:
-        """Run one action call through every check and, if allowed, send it."""
+        """Run one action call through every check and, if allowed, send it.
+
+        `issued_at` and `nonce` are the caller's freshness stamp (contracts 5.3). They are
+        judged before taint and approval so a slow human does not age the command.
+        """
         call = Call(tool, {k: v for k, v in params.items() if v is not None}, ident)
         dangerous = not tool.safe or self.safety.is_dangerous(call.device, call.action)
         if gate is not None:
@@ -68,6 +76,9 @@ class ActionPipeline(PipelineBase):
                     call, "identity", Decision(False, code, v.reason), v.error(), v.reason
                 )
             call.verdict = v
+        stale = self.safety.check_freshness(call.device, call.action, issued_at, nonce)
+        if stale is not None:
+            return await self._refuse(call, "freshness", stale, error_result(stale), stale.code)
         taint = self._taint(call)
         if taint is not None and not taint.allowed and taint.code != CODE_REQUIRES_APPROVAL:
             return await self._refuse(call, "taint", taint, error_result(taint), taint.code)

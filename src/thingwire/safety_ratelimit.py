@@ -3,6 +3,7 @@
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -23,6 +24,18 @@ class RateLimitWindow:
     def record(self) -> None:
         """Record a call timestamp."""
         self.timestamps.append(self.clock())
+
+
+def resolve_limits(
+    config: dict[str, Any], device_id: str, action: str
+) -> tuple[dict[str, float] | None, dict[str, float] | None]:
+    """(per action, per device) rate configs; the device window defaults to the action default."""
+    device_cfg = config.get("devices", {}).get(device_id, {})
+    glob = config.get("global", {})
+    default = glob.get("default_rate_limit")
+    per_action = device_cfg.get("rate_limits", {}).get(action) or default
+    per_device = device_cfg.get("device_rate_limit") or glob.get("device_rate_limit") or default
+    return per_action, per_device
 
 
 class RateLimiterBook:

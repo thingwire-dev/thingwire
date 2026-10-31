@@ -8,6 +8,7 @@ call the bridge to read telemetry or send commands without touching MQTT.
 import asyncio
 import json
 import logging
+import time
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -38,6 +39,8 @@ class MqttBridge(DeviceStore, ConnectionCallbacks):
         self._shutting_down = False
         # (device_id or None for global, payload, retained)
         self.on_estop: Callable[[str | None, bytes, bool], None] | None = None
+        # Stamps outbound commands (contracts 1.2); a field so tests inject a fixed clock.
+        self.wall_clock: Callable[[], float] = time.time
 
     def _on_message(
         self,
@@ -165,6 +168,7 @@ class MqttBridge(DeviceStore, ConnectionCallbacks):
                 "target": target,
                 "command": command,
                 "value": value,
+                "issued_at": self.wall_clock(),
             }
         )
 
