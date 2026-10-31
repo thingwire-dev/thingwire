@@ -108,11 +108,15 @@ def test_committed_results_match_a_fresh_run(result: dict[str, Any]) -> None:
     assert (DEMO / "results" / "summary.md").read_text() == markdown(result)
 
 
-def test_bench_config_differs_from_repo_config_only_by_perception_properties() -> None:
+ALLOWED_CONFIG_DIFF = {"taint.perception_properties", "td_trust"}
+
+
+def test_bench_config_differs_from_repo_config_only_by_allowed_keys() -> None:
     import yaml
 
     root = Path(__file__).resolve().parent.parent
     repo = yaml.safe_load((root / "safety_config.yaml").read_text())
     bench = yaml.safe_load((DEMO / "safety_config.yaml").read_text())
     assert bench["taint"].pop("perception_properties") == ["target_bearing"]
+    assert set(bench.pop("td_trust")["devices"]) == {"desk-bot", "door-relay"}
     assert bench == repo
