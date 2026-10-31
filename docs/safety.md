@@ -43,6 +43,14 @@ nonce is denied with `STALE_COMMAND` or `REPLAYED_COMMAND` before taint and appr
 `required: true` to deny unstamped calls. The gateway also stamps each command it publishes with
 `issued_at`; devices should refuse old ones. See `docs/contracts.md` 5.3.
 
+### 2c. Pinned device policy
+
+Limits and the `safe` flag in a TD are claims by the device. Pin what you rely on under
+`td_trust` in `safety_config.yaml`; the stricter of pin and TD is enforced, a TD that is looser
+is logged and written to the audit log (`safety:td_limit_widened`, `safety:td_approval_lowered`,
+`safety:td_action_unpinned`), and once any device is pinned every unpinned device is denied
+(`TD_NOT_PINNED`) unless you set `unpinned: trust`. Example and rules: `docs/contracts.md` 5.4.
+
 ### 3. Dangerous action detection
 
 Actions marked `"safe": false` in the WoT Thing Description are flagged as dangerous. The safety layer logs a confirmation warning. In v2, this will integrate with MCP's user confirmation flow in Claude Desktop.

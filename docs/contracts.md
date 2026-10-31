@@ -197,7 +197,7 @@ with `source` `safety`, `action` `safety:<event>`, `decision` `transition`,
 | `SAFETY_CHECK_ERROR` | no | `SafetyLayer` | any unexpected exception (fail closed) |
 | `STALE_COMMAND` | no | `SafetyLayer` | (5.3) `issued_at` missing when required, malformed, too old or too far in the future |
 | `REPLAYED_COMMAND` | no | `SafetyLayer` | (5.3) the `nonce` was already used inside its window |
-| `TD_NOT_PINNED` | no | `SafetyLayer` | **PLANNED** (5.4) actuation on a device with no pin while `td_trust.unpinned` resolves to deny |
+| `TD_NOT_PINNED` | no | `SafetyLayer` | (5.4) actuation on a device with no pin while `td_trust.unpinned` resolves to deny |
 | `ESTOP_LATCHED` | no | `safety_estop.py` | e-stop latched for the device or globally |
 | `DENIAL_FLOOD` | no | `safety_flood.py` | repeated denials throttled per (device, action) |
 | `RESET_NOT_AUTHORIZED` | no | `safety_estop.py` | caller not in `global.estop.authorized_resetters` |
@@ -270,7 +270,7 @@ Rules, all fail closed:
 7. `SafetyLayer.evaluate` itself takes no stamp; `SafetyLayer.check_freshness` is the entry
    point and the pipeline calls it. A caller that wants stamps to be mandatory sets `required`.
 
-### 5.4 TD trust and pinned policy (PLANNED)
+### 5.4 TD trust and pinned policy
 
 Limits and the approval flag in a TD are claims by the device, which can be rogue or
 poisoned. The operator pins what the gateway enforces, in `safety_config.yaml`:
@@ -313,10 +313,12 @@ pin does not list).
 
 Unpinned devices. `unpinned: auto` (default) resolves to `deny` as soon as `td_trust.devices` has
 at least one entry and to `trust` otherwise, so turning pinning on is fail closed for every
-device you did not list. `deny` registers only the read tools' allowlist; any action is
-`TD_NOT_PINNED`. `trust` keeps today's behavior (TD values used as published) and logs one
+device you did not list. `deny` allows only the read tools; any action is `TD_NOT_PINNED`. `trust` keeps today's behavior (TD values used as published) and logs one
 WARNING per device. `td_trust` malformed (wrong types, non numeric bounds) makes the gateway
 refuse to start; a missing section equals `unpinned: trust`.
+
+Devices listed explicitly under `devices:` in `safety_config.yaml` are operator authored and are
+not derived from a TD, so pins do not apply to them (unchanged behavior).
 
 Limit: a pin protects a registered device id. It does not authenticate the device; spoofing an id
 is the broker ACL's job (`docs/security-broker.md`). The first TD for an id wins until the gateway
@@ -350,7 +352,7 @@ the tolerance, or an agent that retypes a value in words, still escapes (section
 
 New codes are UPPER_SNAKE_CASE strings. Adding one is a contract change. Config keys added with
 the hardening work are listed with their sections: `global.device_rate_limit` (5.2),
-`global.command_freshness` (5.3), `td_trust` (5.4, PLANNED) and
+`global.command_freshness` (5.3), `td_trust` (5.4) and
 `taint.match_tolerance` and friends (5.5, PLANNED). Config keys
 (`safety_config.yaml`): `global.require_confirmation_for_dangerous`,
 `global.deadman_switch_timeout_seconds` (default 300), `global.default_rate_limit`
