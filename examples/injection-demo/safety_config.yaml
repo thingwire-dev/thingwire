@@ -18,6 +18,9 @@ global:
     authorized_resetters:
       - operator
   # Throttle repeated denials per (device, action). threshold 0 disables.
+  # Every action call must carry issued_at and a unique nonce (contracts 5.3).
+  command_freshness:
+    required: true
   denial_flood:
     threshold: 20
     window_seconds: 60
@@ -45,3 +48,30 @@ taint:
   read_actions: []
   # Per-action override, e.g. sweep: {mode: deny}
   actions: {}
+
+# Operator pins (contracts 5.4). Limits and approval come from here, not from the TD a device
+# publishes. Values are copied from td-library/desk-bot.td.json. With a pin present, a device
+# with no pin is denied, so the relay is pinned too.
+td_trust:
+  unpinned: auto
+  devices:
+    desk-bot:
+      actions:
+        look_at:
+          inputs:
+            pan: {minimum: -90, maximum: 90}
+            tilt: {minimum: -30, maximum: 30}
+        set_expression:
+          inputs:
+            expression: {enum: [neutral, happy, curious, sleepy, surprised, alert]}
+        nod:
+          inputs:
+            times: {minimum: 1, maximum: 3}
+        sweep:
+          requires_approval: true
+          inputs:
+            speed_deg_s: {minimum: 10, maximum: 120}
+    door-relay:
+      actions:
+        set_relay:
+          requires_approval: true

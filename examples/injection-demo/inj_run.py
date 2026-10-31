@@ -63,6 +63,7 @@ def advance(run: Run, seconds: float) -> None:
 
 
 async def play(run: Run, event: Event) -> None:
+    run.arm.set_stale_by(event.stale_by)
     if event.kind == "say":
         await run.agent.ingest(event.channel, event.text)
     elif event.kind == "mqtt":

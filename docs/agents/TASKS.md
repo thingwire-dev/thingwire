@@ -19,7 +19,8 @@ thingwire-dev/thingwire. Last full refresh: 2026-10-18.
 | W7 ROS 2 sim spike | review | `feat/w7-ros2-sim-spike` | #12 | `src/thingwire/ros2*.py`, docs |
 | Agent environment (this change) | review | `chore/agent-environment` | see PR | `AGENTS.md`, `.agents/`, `Makefile`, CI, `docs/contracts.md`, `docs/agents/` |
 | Integration: wire provenance, e-stop, identity into the gateway; gateway MQTT credentials for ACL broker | review | `feat/integration-gateway` | see PR | `mcp_server.py`, `cli.py`, `audit_log.py` (shared) |
-| W6 injection demo | review | `feat/w6-injection-benchmark` | | `examples/injection-demo/`, `tests/test_injection*.py` |
+| W6 injection benchmark | merged (main) | `feat/w6-injection-benchmark` | #18 | `examples/injection-demo/`, `tests/test_injection*.py` |
+| Injection hardening (enum, slew, device rate, freshness, TD pins, taint matching) and hardened benchmark arm | review | `hotfix/injection-hardening` | | `src/thingwire/safety*.py`, `mcp_server.py`, `docs/`, `examples/injection-demo/` (shared: needs label) |
 | Ruff and mypy --strict cleanup | queued | unassigned (Haiku, mechanical) | | files not yet in `.agents/strict-files.txt`; add each file to the list when clean |
 | Dash cleanup of legacy files | queued | unassigned (Haiku, mechanical) | | files in `.agents/dash-allowlist.txt`; remove an entry when its file is clean |
 | First release PR `release/robot-stack-v0` to main | queued | owner | | see `RELEASE.md` |

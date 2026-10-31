@@ -54,7 +54,7 @@ message with a timestamp also counts as a heartbeat for the deadman switch.
 `value` is the action input object after the safety layer validated it (`Decision.params`,
 clamped when `out_of_range: clamp`), for example `{"pan": 10, "tilt": 0}`. Inputs the caller
 omitted are left out. Devices must accept the action name from `command`, falling back to
-`action` (see `virtual_desk_bot.py::_action_name`). **PLANNED**: `issued_at` is the gateway wall clock
+`action` (see `virtual_desk_bot.py::_action_name`). `issued_at` is the gateway wall clock
 when it published the command, seconds since the Unix epoch (UTC, number); `action_id` doubles
 as the nonce. Devices SHOULD refuse a command whose `issued_at` is older than their own validity
 window or whose `action_id` they saw recently (see 5.3). Device side enforcement is PLANNED
@@ -104,8 +104,7 @@ Forms use `mqtt://{broker}/thingwire/{device_id}/<telemetry|command|event>`.
 A number on a property or on an action input axis. Maximum angular speed in degrees per
 second. The device must enforce the same limit on its own (firmware `servo_head`).
 
-**PLANNED** (code today reads only the action input axis; the desk bot declares it on the
-properties, so `look_at` has no slew limit until this lands). Semantics:
+Semantics:
 
 1. Driven properties. An action input axis `x` drives a numeric property `p` of the same TD when
    `p == x` (exact), or, if no property is named exactly `x`, when `p` ends with `_x` (so axis
@@ -187,18 +186,18 @@ with `source` `safety`, `action` `safety:<event>`, `decision` `transition`,
 | --- | --- | --- | --- |
 | `OK` | yes | `MotionGuard` | within limits |
 | `RANGE_CLAMPED` | yes | `MotionGuard` | out-of-range input clamped (only when `out_of_range: clamp`) |
-| `INVALID_INPUT` | no | `MotionGuard` | axis value is not a finite number; **PLANNED**: or not a member of the TD `enum` (5.1) |
+| `INVALID_INPUT` | no | `MotionGuard` | axis value is not a finite number; or not a member of the TD `enum` (5.1) |
 | `OUT_OF_RANGE` | no | `MotionGuard` | outside TD `minimum`/`maximum` (default mode `reject`) |
 | `SLEW_EXCEEDED` | no | `MotionGuard` | faster than `maxSlewDegPerSec` from last known state |
 | `DEVICE_NOT_REGISTERED` | no | `SafetyLayer` | unknown device |
 | `ACTION_NOT_ALLOWED` | no | `SafetyLayer` | not in the device allowlist |
-| `RATE_LIMIT_EXCEEDED` | no | `SafetyLayer` | per action sliding window; **PLANNED**: also a per device window across all actions (5.2) |
+| `RATE_LIMIT_EXCEEDED` | no | `SafetyLayer` | per action sliding window; also a per device window across all actions (5.2) |
 | `DEADMAN_SWITCH` | no | `SafetyLayer` | no heartbeat within `deadman_switch_timeout_seconds` |
 | `APPROVAL_REQUIRED` | no | `SafetyLayer` | `safe: false` action without approval |
 | `SAFETY_CHECK_ERROR` | no | `SafetyLayer` | any unexpected exception (fail closed) |
-| `STALE_COMMAND` | no | `SafetyLayer` | **PLANNED** (5.3) `issued_at` missing when required, malformed, too old or too far in the future |
-| `REPLAYED_COMMAND` | no | `SafetyLayer` | **PLANNED** (5.3) the `nonce` was already used inside its window |
-| `TD_NOT_PINNED` | no | `SafetyLayer` | **PLANNED** (5.4) actuation on a device with no pin while `td_trust.unpinned` resolves to deny |
+| `STALE_COMMAND` | no | `SafetyLayer` | (5.3) `issued_at` missing when required, malformed, too old or too far in the future |
+| `REPLAYED_COMMAND` | no | `SafetyLayer` | (5.3) the `nonce` was already used inside its window |
+| `TD_NOT_PINNED` | no | `SafetyLayer` | (5.4) actuation on a device with no pin while `td_trust.unpinned` resolves to deny |
 | `ESTOP_LATCHED` | no | `safety_estop.py` | e-stop latched for the device or globally |
 | `DENIAL_FLOOD` | no | `safety_flood.py` | repeated denials throttled per (device, action) |
 | `RESET_NOT_AUTHORIZED` | no | `safety_estop.py` | caller not in `global.estop.authorized_resetters` |
@@ -215,7 +214,7 @@ The enum is `DecisionCode` in `src/thingwire/safety_codes.py`. Taint policy code
 `SCAN_NON_FINITE`, `SCAN_OUT_OF_RANGE`, `SCAN_ALL_BLOCKED`, `SCAN_ALL_IDENTICAL`,
 `SCAN_IMPLAUSIBLE_JUMP`, `SCAN_BAD_TIMESTAMP`, `SCAN_LENGTH_CHANGED`.
 
-### 5.1 Enum constraints (PLANNED)
+### 5.1 Enum constraints
 
 A TD input property with `enum` is enforced by `MotionGuard` for any JSON type, not only
 numbers. The value must equal one member, compared by JSON type (`true` is not `1`, `"1"` is
@@ -223,7 +222,7 @@ not `1`). Anything else is `INVALID_INPUT` with details `{axis, reason: "not_in_
 allowed: [...]}`. `out_of_range: clamp` never applies to an enum. An omitted optional input is
 not checked. The effective enum is the intersection of the TD enum and the pinned enum (5.4).
 
-### 5.2 Rate limit scope (PLANNED)
+### 5.2 Rate limit scope
 
 Two sliding windows must both have room; a call is recorded in both or in neither.
 
@@ -236,12 +235,12 @@ A denial is `RATE_LIMIT_EXCEEDED` with details `{scope: "action" | "device", max
 window_seconds}`. No threshold is hardcoded beyond the existing config defaults. Reads are not
 rate limited here (unchanged).
 
-### 5.3 Command freshness (PLANNED)
+### 5.3 Command freshness
 
 An action call may carry a stamp: `issued_at` (number, seconds since the Unix epoch, UTC) and
 `nonce` (string of 8 to 128 characters from `[A-Za-z0-9_-]`). On the MCP tools they are optional
 extra parameters named `issued_at` and `nonce`; they never reach the device `value`. The check
-runs in the gateway after the identity check and before taint and approval, so a slow human
+runs in `ActionPipeline.execute` after the identity check and before taint and approval, so a slow human
 approval does not age the command. Config, `global.command_freshness`:
 
 | Key | Default | Meaning |
@@ -266,10 +265,12 @@ Rules, all fail closed:
    `{reason: "nonce_cache_full"}`. Live entries are never evicted, because evicting would let
    a replay through.
 5. Both codes count towards denial flood only if listed in `denial_flood.counted_codes`.
-6. Replay (`thingwire replay`) does not use stamps: the check is a gateway stage recorded with
-   `stage: "freshness"` and skipped by replay.
+6. Replay (`thingwire replay`) does not use stamps: a denial is recorded as a gateway stage
+   (`stage: "freshness"`) and skipped by replay.
+7. `SafetyLayer.evaluate` itself takes no stamp; `SafetyLayer.check_freshness` is the entry
+   point and the pipeline calls it. A caller that wants stamps to be mandatory sets `required`.
 
-### 5.4 TD trust and pinned policy (PLANNED)
+### 5.4 TD trust and pinned policy
 
 Limits and the approval flag in a TD are claims by the device, which can be rogue or
 poisoned. The operator pins what the gateway enforces, in `safety_config.yaml`:
@@ -312,23 +313,25 @@ pin does not list).
 
 Unpinned devices. `unpinned: auto` (default) resolves to `deny` as soon as `td_trust.devices` has
 at least one entry and to `trust` otherwise, so turning pinning on is fail closed for every
-device you did not list. `deny` registers only the read tools' allowlist; any action is
-`TD_NOT_PINNED`. `trust` keeps today's behavior (TD values used as published) and logs one
+device you did not list. `deny` allows only the read tools; any action is `TD_NOT_PINNED`. `trust` keeps today's behavior (TD values used as published) and logs one
 WARNING per device. `td_trust` malformed (wrong types, non numeric bounds) makes the gateway
 refuse to start; a missing section equals `unpinned: trust`.
+
+Devices listed explicitly under `devices:` in `safety_config.yaml` are operator authored and are
+not derived from a TD, so pins do not apply to them (unchanged behavior).
 
 Limit: a pin protects a registered device id. It does not authenticate the device; spoofing an id
 is the broker ACL's job (`docs/security-broker.md`). The first TD for an id wins until the gateway
 restarts (unchanged); a later differing TD is not applied.
 
-### 5.5 Taint matching (PLANNED)
+### 5.5 Taint matching
 
 Extends the gateway ledger in `gateway_taint.py`. Config, under `taint:`:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `match_tolerance` | 1.0 | a numeric argument is linked to a read value when `abs(arg - value) <= match_tolerance`; 0 means exact |
-| `max_leaves_per_reading` | 64 | structured readings are flattened to at most this many scalars |
+| `max_leaves_per_reading` | 1024 | structured readings are flattened to at most this many scalars |
 | `max_string_chars` | 4096 | longer strings are cut before scanning |
 
 What enters the ledger for a read, besides what already does:
@@ -336,20 +339,24 @@ What enters the ledger for a read, besides what already does:
   decimal numbers), as numeric entries.
 - Numeric leaves of lists and objects, as numeric entries.
 - A stable digest (`provenance.content_hash` of the casefolded, stripped string) of each string
-  leaf and of the whole reading, as digest entries.
+  leaf, as digest entries. A bare string reading is one leaf. Booleans and null are ignored.
 
 A call is linked to a ledger entry when a numeric argument is within `match_tolerance` of a
-numeric entry, or the digest of a string argument (casefolded, stripped) equals a digest entry.
+numeric entry, or the digest of a string argument (casefolded, stripped) equals a digest entry. Numbers are not
+extracted from string arguments, only digests are compared.
 Provenance and expiry are unchanged (`context_window_seconds`, `max_context_entries`). A link to
 an entry whose origin is untrusted makes the call a tainted action: it needs a theAuth approval
 or the `taint:override` scope (`TAINTED_CONTEXT_REQUIRES_APPROVAL`), as for exact matches today.
 Origin is unchanged: only properties in `taint.perception_properties`, implausible scans and
-configured untrusted origins are untrusted. A tolerance is a heuristic: arithmetic larger than
+configured untrusted origins are untrusted. Matching over-approximates on purpose: a perception string that contains a small number
+(such as `0`) links later arguments near it, which costs a false approval request, never a miss.
+A tolerance is a heuristic: arithmetic larger than
 the tolerance, or an agent that retypes a value in words, still escapes (section 8).
 
-New codes are UPPER_SNAKE_CASE strings. Adding one is a contract change. PLANNED config keys are
-listed with their sections: `global.device_rate_limit` (5.2), `global.command_freshness` (5.3),
-`td_trust` (5.4) and `taint.match_tolerance` and friends (5.5). Config keys
+New codes are UPPER_SNAKE_CASE strings. Adding one is a contract change. Config keys added with
+the hardening work are listed with their sections: `global.device_rate_limit` (5.2),
+`global.command_freshness` (5.3), `td_trust` (5.4) and
+`taint.match_tolerance` and friends (5.5). Config keys
 (`safety_config.yaml`): `global.require_confirmation_for_dangerous`,
 `global.deadman_switch_timeout_seconds` (default 300), `global.default_rate_limit`
 (`max_calls` 10, `window_seconds` 60), `global.out_of_range` (`reject` or `clamp`), `global.estop.authorized_resetters` (default
