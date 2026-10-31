@@ -104,8 +104,7 @@ Forms use `mqtt://{broker}/thingwire/{device_id}/<telemetry|command|event>`.
 A number on a property or on an action input axis. Maximum angular speed in degrees per
 second. The device must enforce the same limit on its own (firmware `servo_head`).
 
-**PLANNED** (code today reads only the action input axis; the desk bot declares it on the
-properties, so `look_at` has no slew limit until this lands). Semantics:
+Semantics:
 
 1. Driven properties. An action input axis `x` drives a numeric property `p` of the same TD when
    `p == x` (exact), or, if no property is named exactly `x`, when `p` ends with `_x` (so axis
@@ -187,12 +186,12 @@ with `source` `safety`, `action` `safety:<event>`, `decision` `transition`,
 | --- | --- | --- | --- |
 | `OK` | yes | `MotionGuard` | within limits |
 | `RANGE_CLAMPED` | yes | `MotionGuard` | out-of-range input clamped (only when `out_of_range: clamp`) |
-| `INVALID_INPUT` | no | `MotionGuard` | axis value is not a finite number; **PLANNED**: or not a member of the TD `enum` (5.1) |
+| `INVALID_INPUT` | no | `MotionGuard` | axis value is not a finite number; or not a member of the TD `enum` (5.1) |
 | `OUT_OF_RANGE` | no | `MotionGuard` | outside TD `minimum`/`maximum` (default mode `reject`) |
 | `SLEW_EXCEEDED` | no | `MotionGuard` | faster than `maxSlewDegPerSec` from last known state |
 | `DEVICE_NOT_REGISTERED` | no | `SafetyLayer` | unknown device |
 | `ACTION_NOT_ALLOWED` | no | `SafetyLayer` | not in the device allowlist |
-| `RATE_LIMIT_EXCEEDED` | no | `SafetyLayer` | per action sliding window; **PLANNED**: also a per device window across all actions (5.2) |
+| `RATE_LIMIT_EXCEEDED` | no | `SafetyLayer` | per action sliding window; also a per device window across all actions (5.2) |
 | `DEADMAN_SWITCH` | no | `SafetyLayer` | no heartbeat within `deadman_switch_timeout_seconds` |
 | `APPROVAL_REQUIRED` | no | `SafetyLayer` | `safe: false` action without approval |
 | `SAFETY_CHECK_ERROR` | no | `SafetyLayer` | any unexpected exception (fail closed) |
@@ -215,7 +214,7 @@ The enum is `DecisionCode` in `src/thingwire/safety_codes.py`. Taint policy code
 `SCAN_NON_FINITE`, `SCAN_OUT_OF_RANGE`, `SCAN_ALL_BLOCKED`, `SCAN_ALL_IDENTICAL`,
 `SCAN_IMPLAUSIBLE_JUMP`, `SCAN_BAD_TIMESTAMP`, `SCAN_LENGTH_CHANGED`.
 
-### 5.1 Enum constraints (PLANNED)
+### 5.1 Enum constraints
 
 A TD input property with `enum` is enforced by `MotionGuard` for any JSON type, not only
 numbers. The value must equal one member, compared by JSON type (`true` is not `1`, `"1"` is
@@ -223,7 +222,7 @@ not `1`). Anything else is `INVALID_INPUT` with details `{axis, reason: "not_in_
 allowed: [...]}`. `out_of_range: clamp` never applies to an enum. An omitted optional input is
 not checked. The effective enum is the intersection of the TD enum and the pinned enum (5.4).
 
-### 5.2 Rate limit scope (PLANNED)
+### 5.2 Rate limit scope
 
 Two sliding windows must both have room; a call is recorded in both or in neither.
 
@@ -347,9 +346,10 @@ Origin is unchanged: only properties in `taint.perception_properties`, implausib
 configured untrusted origins are untrusted. A tolerance is a heuristic: arithmetic larger than
 the tolerance, or an agent that retypes a value in words, still escapes (section 8).
 
-New codes are UPPER_SNAKE_CASE strings. Adding one is a contract change. PLANNED config keys are
-listed with their sections: `global.device_rate_limit` (5.2), `global.command_freshness` (5.3),
-`td_trust` (5.4) and `taint.match_tolerance` and friends (5.5). Config keys
+New codes are UPPER_SNAKE_CASE strings. Adding one is a contract change. Config keys added with
+the hardening work are listed with their sections: `global.device_rate_limit` (5.2),
+`global.command_freshness` (5.3, PLANNED), `td_trust` (5.4, PLANNED) and
+`taint.match_tolerance` and friends (5.5, PLANNED). Config keys
 (`safety_config.yaml`): `global.require_confirmation_for_dangerous`,
 `global.deadman_switch_timeout_seconds` (default 300), `global.default_rate_limit`
 (`max_calls` 10, `window_seconds` 60), `global.out_of_range` (`reject` or `clamp`), `global.estop.authorized_resetters` (default

@@ -23,7 +23,10 @@ Devices discovered via MQTT are auto-registered with allowlists derived from the
 
 ### 2. Rate limiting
 
-Sliding window rate limiter per action per device. Default: 10 calls per 60 seconds.
+Sliding window rate limiter per action per device, plus one window per device across all
+actions so rotating actions cannot multiply the budget. Default: 10 calls per 60 seconds for
+both; set `global.device_rate_limit` (or `devices.<id>.device_rate_limit`) to change the device
+wide window.
 
 ```yaml
 global:
