@@ -12,9 +12,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from thingwire.safety_codes import DecisionCode, SafetyError
+from thingwire.safety_defaults import default_config
 from thingwire.safety_guards import SafetyGuards
 from thingwire.safety_motion import AxisLimit, Decision, MotionGuard, extract_limits
 from thingwire.safety_ratelimit import RateLimiterBook, RateLimitWindow
@@ -72,26 +73,7 @@ class SafetyLayer:
 
     def _load_defaults(self) -> None:
         """Load sensible default safety configuration."""
-        self._config = {
-            "devices": {},
-            "global": {
-                "require_confirmation_for_dangerous": True,
-                "deadman_switch_timeout_seconds": 300,
-                "audit_log_retention_days": 30,
-                "default_rate_limit": {"max_calls": 10, "window_seconds": 60},
-                "estop": {"authorized_resetters": ["operator"]},
-                "denial_flood": {
-                    "threshold": 20,
-                    "window_seconds": 60,
-                    "counted_codes": [
-                        "INVALID_INPUT",
-                        "OUT_OF_RANGE",
-                        "SLEW_EXCEEDED",
-                        "ACTION_NOT_ALLOWED",
-                    ],
-                },
-            },
-        }
+        self._config = default_config()
         logger.info("Using default safety configuration")
 
     @property
@@ -114,7 +96,7 @@ class SafetyLayer:
             allowed_actions.append(f"read_{name}")
         for name, action in actions.items():
             allowed_actions.append(f"do_{name}")
-            limits = extract_limits(action)
+            limits = extract_limits(action, td.get("properties"))
             if limits:
                 self._limits[(device_id, f"do_{name}")] = limits
             if not action.get("safe", True):
@@ -146,23 +128,28 @@ class SafetyLayer:
             )
 
     def check_rate_limit(self, device_id: str, action: str) -> None:
-        """Check rate limit for action. Raises SafetyError if exceeded."""
-        device_config = self._config.get("devices", {}).get(device_id, {})
-        rate_config = device_config.get("rate_limits", {}).get(action)
-
-        if not rate_config:
-            # Use global default
-            rate_config = self._config.get("global", {}).get("default_rate_limit")
-
-        if not rate_config:
-            return  # No rate limit configured
-
-        limiter = self._rates.check_and_record(device_id, action, rate_config)
-        if limiter:
+        """Check the per action and per device windows. Raises SafetyError if either is full."""
+        cfg = self._config
+        device_config = cfg.get("devices", {}).get(device_id, {})
+        default = cfg.get("global", {}).get("default_rate_limit")
+        action_cfg = device_config.get("rate_limits", {}).get(action) or default
+        device_cfg = (
+            device_config.get("device_rate_limit")
+            or cfg.get("global", {}).get("device_rate_limit")
+            or default
+        )
+        full = self._rates.admit(device_id, action, action_cfg, device_cfg)
+        if full:
+            scope, limiter = full
             raise SafetyError(
                 DecisionCode.RATE_LIMIT_EXCEEDED,
-                f"Rate limit exceeded for '{action}' on device '{device_id}'. "
+                f"Rate limit exceeded for {scope} '{device_id}/{action}'. "
                 f"Max {limiter.max_calls} calls per {limiter.window_seconds}s",
+                {
+                    "scope": scope,
+                    "max_calls": limiter.max_calls,
+                    "window_seconds": limiter.window_seconds,
+                },
             )
 
     def is_dangerous(self, device_id: str, action: str) -> bool:
@@ -262,7 +249,7 @@ class SafetyLayer:
         try:
             verdict = self._evaluate(device_id, action, params, approved)
         except SafetyError as exc:
-            verdict = Decision(False, exc.code, exc.message, {"agent_id": agent_id})
+            verdict = Decision(False, exc.code, exc.message, {**exc.details, "agent_id": agent_id})
         except Exception as exc:
             logger.exception("Safety check failed for %s/%s, denying", device_id, action)
             verdict = Decision(
@@ -302,5 +289,5 @@ class SafetyLayer:
         if not verdict.allowed:
             return verdict
         self.check_rate_limit(device_id, action)
-        self._motion.commit(device_id, action, verdict.params)
+        self._motion.commit(device_id, action, verdict.params, limits)
         return verdict
