@@ -11,6 +11,9 @@ Config (all optional, under the `taint:` section of safety_config.yaml):
     perception_properties: [person_detected]   # TD properties that are perception
     context_window_seconds: 300                 # how long a read value stays in context
     max_context_entries: 256                    # ledger bound per session
+    match_tolerance: 1.0                        # numeric arguments within this are linked
+    max_leaves_per_reading: 1024                # structured readings are cut to this many scalars
+    max_string_chars: 4096                      # longer strings are cut before scanning
     scans: {ranges: {range_min: 0.1, range_max: 12, max_change_m_per_s: 5}}
 """
 
@@ -25,31 +28,39 @@ from typing import Any
 from thingwire.plausibility import ScanChecker, ScanSpec
 from thingwire.provenance import Origin, Provenance, make_provenance
 from thingwire.safety_motion import Decision
+from thingwire.taint_features import Features, extract, linked
 from thingwire.taint_policy import TaintPolicy
 
 logger = logging.getLogger(__name__)
 
 Clock = Callable[[], float]
 LOCAL_SESSION = "local"
+DEFAULT_MATCH_TOLERANCE = 1.0
+DEFAULT_MAX_LEAVES = 1024
+DEFAULT_MAX_STRING_CHARS = 4096
 
 
 @dataclass(frozen=True)
 class _Seen:
-    values: frozenset[float]
+    features: Features
     prov: Provenance
     at: float
 
 
-def _numbers(value: Any) -> set[float]:
-    """Finite numbers in a reading (a scalar or a flat list such as a range scan)."""
-    items = value if isinstance(value, list | tuple) else [value]
-    out: set[float] = set()
-    for item in items:
-        if isinstance(item, bool) or not isinstance(item, int | float):
-            continue
-        if math.isfinite(float(item)):
-            out.add(float(item))
-    return out
+def _positive(section: Mapping[str, Any], key: str, default: int) -> int:
+    value = section.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"taint.{key} must be a positive integer")
+    return value
+
+
+def _tolerance(section: Mapping[str, Any]) -> float:
+    value = section.get("match_tolerance", DEFAULT_MATCH_TOLERANCE)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError("taint.match_tolerance must be a number")
+    if not math.isfinite(value) or value < 0:
+        raise ValueError("taint.match_tolerance must be finite and not negative")
+    return float(value)
 
 
 def _scan_specs(section: Mapping[str, Any]) -> dict[str, ScanSpec]:
@@ -71,6 +82,9 @@ class TaintTracker:
         window_seconds: float = 300.0,
         max_entries: int = 256,
         clock: Clock = time.monotonic,
+        match_tolerance: float = DEFAULT_MATCH_TOLERANCE,
+        max_leaves: int = DEFAULT_MAX_LEAVES,
+        max_string_chars: int = DEFAULT_MAX_STRING_CHARS,
     ) -> None:
         self.policy = policy
         self._perception = perception_properties
@@ -78,6 +92,7 @@ class TaintTracker:
         self._checkers: dict[tuple[str, str], ScanChecker] = {}
         self._window = window_seconds
         self._max = max_entries
+        self._tolerance, self._leaves, self._chars = match_tolerance, max_leaves, max_string_chars
         self._clock = clock
         self._ledger: dict[str, deque[_Seen]] = {}
 
@@ -99,6 +114,9 @@ class TaintTracker:
             window_seconds=float(section.get("context_window_seconds", 300.0)),
             max_entries=int(section.get("max_context_entries", 256)),
             clock=clock,
+            match_tolerance=_tolerance(section),
+            max_leaves=_positive(section, "max_leaves_per_reading", DEFAULT_MAX_LEAVES),
+            max_string_chars=_positive(section, "max_string_chars", DEFAULT_MAX_STRING_CHARS),
         )
 
     def _prune(self, entries: deque[_Seen], now: float) -> None:
@@ -128,23 +146,26 @@ class TaintTracker:
         prov = make_provenance(value, origin, device_id, lambda: now)
         out["origin"] = prov.origin.value
         out["taint_id"] = prov.taint_id
-        numbers = _numbers(value)
-        if numbers:
+        features = extract(value, max_leaves=self._leaves, max_chars=self._chars)
+        if features:
             entries = self._ledger.setdefault(session, deque())
-            entries.append(_Seen(frozenset(numbers), prov, now))
+            entries.append(_Seen(features, prov, now))
             self._prune(entries, now)
         return out
 
     def context_for(self, session: str, params: Mapping[str, Any]) -> list[Provenance]:
-        """Provenance of ledger values that reappear in an action's numeric arguments."""
-        wanted = set()
-        for value in params.values():
-            wanted |= _numbers(value)
+        """Provenance of ledger entries an action's arguments are linked to (contracts 5.5)."""
+        wanted = extract(
+            list(params.values()),
+            max_leaves=self._leaves,
+            max_chars=self._chars,
+            numbers_in_strings=False,
+        )
         entries = self._ledger.get(session)
         if not wanted or not entries:
             return []
         self._prune(entries, self._clock())
-        return [seen.prov for seen in entries if seen.values & wanted]
+        return [seen.prov for seen in entries if linked(seen.features, wanted, self._tolerance)]
 
     def evaluate(
         self,
