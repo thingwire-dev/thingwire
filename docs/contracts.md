@@ -324,14 +324,14 @@ Limit: a pin protects a registered device id. It does not authenticate the devic
 is the broker ACL's job (`docs/security-broker.md`). The first TD for an id wins until the gateway
 restarts (unchanged); a later differing TD is not applied.
 
-### 5.5 Taint matching (PLANNED)
+### 5.5 Taint matching
 
 Extends the gateway ledger in `gateway_taint.py`. Config, under `taint:`:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `match_tolerance` | 1.0 | a numeric argument is linked to a read value when `abs(arg - value) <= match_tolerance`; 0 means exact |
-| `max_leaves_per_reading` | 64 | structured readings are flattened to at most this many scalars |
+| `max_leaves_per_reading` | 1024 | structured readings are flattened to at most this many scalars |
 | `max_string_chars` | 4096 | longer strings are cut before scanning |
 
 What enters the ledger for a read, besides what already does:
@@ -339,21 +339,24 @@ What enters the ledger for a read, besides what already does:
   decimal numbers), as numeric entries.
 - Numeric leaves of lists and objects, as numeric entries.
 - A stable digest (`provenance.content_hash` of the casefolded, stripped string) of each string
-  leaf and of the whole reading, as digest entries.
+  leaf, as digest entries. A bare string reading is one leaf. Booleans and null are ignored.
 
 A call is linked to a ledger entry when a numeric argument is within `match_tolerance` of a
-numeric entry, or the digest of a string argument (casefolded, stripped) equals a digest entry.
+numeric entry, or the digest of a string argument (casefolded, stripped) equals a digest entry. Numbers are not
+extracted from string arguments, only digests are compared.
 Provenance and expiry are unchanged (`context_window_seconds`, `max_context_entries`). A link to
 an entry whose origin is untrusted makes the call a tainted action: it needs a theAuth approval
 or the `taint:override` scope (`TAINTED_CONTEXT_REQUIRES_APPROVAL`), as for exact matches today.
 Origin is unchanged: only properties in `taint.perception_properties`, implausible scans and
-configured untrusted origins are untrusted. A tolerance is a heuristic: arithmetic larger than
+configured untrusted origins are untrusted. Matching over-approximates on purpose: a perception string that contains a small number
+(such as `0`) links later arguments near it, which costs a false approval request, never a miss.
+A tolerance is a heuristic: arithmetic larger than
 the tolerance, or an agent that retypes a value in words, still escapes (section 8).
 
 New codes are UPPER_SNAKE_CASE strings. Adding one is a contract change. Config keys added with
 the hardening work are listed with their sections: `global.device_rate_limit` (5.2),
 `global.command_freshness` (5.3), `td_trust` (5.4) and
-`taint.match_tolerance` and friends (5.5, PLANNED). Config keys
+`taint.match_tolerance` and friends (5.5). Config keys
 (`safety_config.yaml`): `global.require_confirmation_for_dangerous`,
 `global.deadman_switch_timeout_seconds` (default 300), `global.default_rate_limit`
 (`max_calls` 10, `window_seconds` 60), `global.out_of_range` (`reject` or `clamp`), `global.estop.authorized_resetters` (default
