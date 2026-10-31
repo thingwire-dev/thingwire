@@ -35,6 +35,14 @@ global:
     window_seconds: 60
 ```
 
+### 2b. Command freshness
+
+An action call may carry `issued_at` (Unix seconds, UTC) and a unique `nonce`. A stamp older
+than `global.command_freshness.max_age_seconds`, dated too far ahead, malformed, or with a reused
+nonce is denied with `STALE_COMMAND` or `REPLAYED_COMMAND` before taint and approval. Set
+`required: true` to deny unstamped calls. The gateway also stamps each command it publishes with
+`issued_at`; devices should refuse old ones. See `docs/contracts.md` 5.3.
+
 ### 3. Dangerous action detection
 
 Actions marked `"safe": false` in the WoT Thing Description are flagged as dangerous. The safety layer logs a confirmation warning. In v2, this will integrate with MCP's user confirmation flow in Claude Desktop.

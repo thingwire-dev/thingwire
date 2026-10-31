@@ -54,7 +54,7 @@ message with a timestamp also counts as a heartbeat for the deadman switch.
 `value` is the action input object after the safety layer validated it (`Decision.params`,
 clamped when `out_of_range: clamp`), for example `{"pan": 10, "tilt": 0}`. Inputs the caller
 omitted are left out. Devices must accept the action name from `command`, falling back to
-`action` (see `virtual_desk_bot.py::_action_name`). **PLANNED**: `issued_at` is the gateway wall clock
+`action` (see `virtual_desk_bot.py::_action_name`). `issued_at` is the gateway wall clock
 when it published the command, seconds since the Unix epoch (UTC, number); `action_id` doubles
 as the nonce. Devices SHOULD refuse a command whose `issued_at` is older than their own validity
 window or whose `action_id` they saw recently (see 5.3). Device side enforcement is PLANNED
@@ -195,8 +195,8 @@ with `source` `safety`, `action` `safety:<event>`, `decision` `transition`,
 | `DEADMAN_SWITCH` | no | `SafetyLayer` | no heartbeat within `deadman_switch_timeout_seconds` |
 | `APPROVAL_REQUIRED` | no | `SafetyLayer` | `safe: false` action without approval |
 | `SAFETY_CHECK_ERROR` | no | `SafetyLayer` | any unexpected exception (fail closed) |
-| `STALE_COMMAND` | no | `SafetyLayer` | **PLANNED** (5.3) `issued_at` missing when required, malformed, too old or too far in the future |
-| `REPLAYED_COMMAND` | no | `SafetyLayer` | **PLANNED** (5.3) the `nonce` was already used inside its window |
+| `STALE_COMMAND` | no | `SafetyLayer` | (5.3) `issued_at` missing when required, malformed, too old or too far in the future |
+| `REPLAYED_COMMAND` | no | `SafetyLayer` | (5.3) the `nonce` was already used inside its window |
 | `TD_NOT_PINNED` | no | `SafetyLayer` | **PLANNED** (5.4) actuation on a device with no pin while `td_trust.unpinned` resolves to deny |
 | `ESTOP_LATCHED` | no | `safety_estop.py` | e-stop latched for the device or globally |
 | `DENIAL_FLOOD` | no | `safety_flood.py` | repeated denials throttled per (device, action) |
@@ -235,12 +235,12 @@ A denial is `RATE_LIMIT_EXCEEDED` with details `{scope: "action" | "device", max
 window_seconds}`. No threshold is hardcoded beyond the existing config defaults. Reads are not
 rate limited here (unchanged).
 
-### 5.3 Command freshness (PLANNED)
+### 5.3 Command freshness
 
 An action call may carry a stamp: `issued_at` (number, seconds since the Unix epoch, UTC) and
 `nonce` (string of 8 to 128 characters from `[A-Za-z0-9_-]`). On the MCP tools they are optional
 extra parameters named `issued_at` and `nonce`; they never reach the device `value`. The check
-runs in the gateway after the identity check and before taint and approval, so a slow human
+runs in `ActionPipeline.execute` after the identity check and before taint and approval, so a slow human
 approval does not age the command. Config, `global.command_freshness`:
 
 | Key | Default | Meaning |
@@ -265,8 +265,10 @@ Rules, all fail closed:
    `{reason: "nonce_cache_full"}`. Live entries are never evicted, because evicting would let
    a replay through.
 5. Both codes count towards denial flood only if listed in `denial_flood.counted_codes`.
-6. Replay (`thingwire replay`) does not use stamps: the check is a gateway stage recorded with
-   `stage: "freshness"` and skipped by replay.
+6. Replay (`thingwire replay`) does not use stamps: a denial is recorded as a gateway stage
+   (`stage: "freshness"`) and skipped by replay.
+7. `SafetyLayer.evaluate` itself takes no stamp; `SafetyLayer.check_freshness` is the entry
+   point and the pipeline calls it. A caller that wants stamps to be mandatory sets `required`.
 
 ### 5.4 TD trust and pinned policy (PLANNED)
 
@@ -348,7 +350,7 @@ the tolerance, or an agent that retypes a value in words, still escapes (section
 
 New codes are UPPER_SNAKE_CASE strings. Adding one is a contract change. Config keys added with
 the hardening work are listed with their sections: `global.device_rate_limit` (5.2),
-`global.command_freshness` (5.3, PLANNED), `td_trust` (5.4, PLANNED) and
+`global.command_freshness` (5.3), `td_trust` (5.4, PLANNED) and
 `taint.match_tolerance` and friends (5.5, PLANNED). Config keys
 (`safety_config.yaml`): `global.require_confirmation_for_dangerous`,
 `global.deadman_switch_timeout_seconds` (default 300), `global.default_rate_limit`
