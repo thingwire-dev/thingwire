@@ -23,6 +23,7 @@ thingwire-dev/thingwire. Last full refresh: 2026-10-18.
 | Ruff and mypy --strict cleanup | queued | unassigned (Haiku, mechanical) | | files not yet in `.agents/strict-files.txt`; add each file to the list when clean |
 | Dash cleanup of legacy files | queued | unassigned (Haiku, mechanical) | | files in `.agents/dash-allowlist.txt`; remove an entry when its file is clean |
 | First release PR `release/robot-stack-v0` to main | queued | owner | | see `RELEASE.md` |
+| Integration: desk bot behaviour loop in simulation | review | `feat/integration-behaviour-loop` | not opened | `examples/desk-bot-behaviour/`, `tests/test_e2e_behaviour*.py` |
 
 Notes
 - Early PRs (#2 to #7) merged straight to main before the release branch existed. From now on

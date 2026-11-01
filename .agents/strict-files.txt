@@ -34,3 +34,17 @@ src/thingwire/gateway_taint.py
 tests/test_e2e_http.py
 tests/test_e2e_runtime.py
 tests/test_e2e_wiring.py
+examples/injection-demo/inj_model.py
+examples/injection-demo/inj_tds.py
+examples/injection-demo/inj_world.py
+examples/injection-demo/inj_arms.py
+examples/injection-demo/inj_gateway.py
+examples/desk-bot-behaviour/beh_personality.py
+examples/desk-bot-behaviour/beh_chooser.py
+examples/desk-bot-behaviour/beh_llm.py
+examples/desk-bot-behaviour/beh_machine.py
+examples/desk-bot-behaviour/beh_actuator.py
+examples/desk-bot-behaviour/beh_sim.py
+examples/desk-bot-behaviour/run_sim.py
+tests/test_e2e_behaviour.py
+tests/test_e2e_behaviour_chooser.py
