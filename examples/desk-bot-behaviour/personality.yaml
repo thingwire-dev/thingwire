@@ -1,0 +1,51 @@
+# Desk bot personality. Read once at start; every timing, probability and
+# expression the behaviour loop uses comes from this file. Expression names
+# must be in the desk bot TD enum, or the file is rejected.
+tick_s: 0.25                # simulated seconds per loop step
+min_action_gap_s: 1.0       # minimum time between two actuator commands
+trigger_after_s: 0.75       # PIR must stay high this long to count as presence (debounce)
+
+expressions:
+  idle: neutral
+  notice: alert
+  react: [happy, surprised, curious]
+  cooldown: neutral
+  sleep: sleepy
+
+idle:
+  blink_every_s: [4.0, 9.0]       # [min, max], drawn at random
+  look_every_s: [10.0, 20.0]
+  look_pan_deg: 30.0              # look-around stays within +/- this
+  look_tilt_deg: 10.0
+  curiosity: 0.3                  # chance a look-around also shows the curious face
+  curious_expression: curious
+
+notice:
+  duration_s: 2.0
+  front_pan_deg: 0.0
+  front_tilt_deg: 5.0
+
+react:
+  duration_s: 3.0
+  utterance_probability: 0.6
+  nod_probability: 0.5
+  nod_times: 2
+
+cooldown:
+  duration_s: 8.0
+
+sleep:
+  after_idle_s: 60.0              # no motion for this long and the bot sleeps
+  tilt_deg: -20.0
+
+backoff:
+  initial_s: 2.0                  # pause after a safety denial, doubles per denial
+  max_s: 30.0
+
+menu:
+  max_utterance_chars: 24
+  utterances:
+    - "Oh, hello!"
+    - "Hi there."
+    - "Who goes there?"
+    - "Good to see you."
