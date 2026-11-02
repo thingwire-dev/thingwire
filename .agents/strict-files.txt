@@ -48,3 +48,6 @@ examples/desk-bot-behaviour/beh_sim.py
 examples/desk-bot-behaviour/run_sim.py
 tests/test_e2e_behaviour.py
 tests/test_e2e_behaviour_chooser.py
+src/thingwire/safety_text.py
+scripts/desk_bot_display.py
+tests/test_safety_text.py
