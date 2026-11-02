@@ -276,7 +276,7 @@ characters, lowercase). Rows written before the migration keep both null and are
   against a `head` hash (the `row_hash` of the newest row) that the operator saved elsewhere.
 - Result shape: `{"ok": bool, "checked": int, "head": "<row_hash>|null", "first_bad_id": int|null,
   "reason": "<fixed string>|null"}` with reason one of `row_hash_mismatch`, `chain_break`,
-  `unchained_after_chained`.
+  `unchained_after_chained`, `head_mismatch` (a given `--head` differs from the newest row hash).
 - The hash is not a signature. Someone who can rewrite the whole database and recompute every
   hash defeats it; section 8 lists this as residual risk. `thingwire.safety_audit_chain` (run as
   `python -m thingwire.safety_audit_chain <db> [--head <hash>]`) exits 0 when ok, 1 when not, 2 on a
