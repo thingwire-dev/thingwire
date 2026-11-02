@@ -67,6 +67,15 @@ rules:
     paths: ["src/thingwire/provenance*.py", "tests/test_provenance*.py"]
   - branch: "feat/broker-acl-*"
     paths: ["docker/mosquitto*", "docker/acl*", "tests/test_broker_acl*.py"]
+  - branch: "feat/integration-dry-run"
+    paths:
+      - "src/thingwire/gateway_preview.py"
+      - "src/thingwire/gateway_actions.py"
+      - "src/thingwire/safety_preview.py"
+      - "src/thingwire/safety_ratelimit.py"
+      - "tests/test_e2e_dry_run.py"
+      - ".agents/strict-files.txt"
+      - ".agents/ownership.yaml"
   - branch: "feat/integration-*"
     paths:
       - "tests/test_e2e*.py"
