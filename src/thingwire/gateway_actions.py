@@ -25,6 +25,7 @@ from thingwire.gateway_base import (
     error_result,
     safety_action,
 )
+from thingwire.gateway_preview import dry_run
 from thingwire.gateway_taint import LOCAL_SESSION
 from thingwire.identity import AgentIdentity
 from thingwire.identity_gate import Gatekeeper, deny
@@ -88,6 +89,16 @@ class ActionPipeline(PipelineBase):
             if refused is not None:
                 return refused
         return await self._evaluate_and_send(call, route)
+
+    async def preview(
+        self,
+        tool: CompiledTool,
+        params: dict[str, Any],
+        ident: AgentIdentity | None,
+        gate: Gatekeeper | None,
+    ) -> dict[str, Any]:
+        """Judge a call without sending or changing anything (contracts 5.7)."""
+        return await dry_run(self, tool, params, ident, gate)
 
     def _taint(self, call: Call) -> Decision | None:
         if self.taint is None:

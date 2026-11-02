@@ -122,16 +122,28 @@ _STAMP_PARAMS = (
 )
 
 
+_DRY_RUN_PARAM = ToolParameter(
+    name="dry_run",
+    type="boolean",
+    description="Optional: true checks whether this call would be allowed, and sends nothing",
+    required=False,
+)
+
+
 def _register_action_tool(
     mcp: FastMCP, tool: CompiledTool, route: CommandRoute, pipeline: ActionPipeline
 ) -> None:
     """Register an action tool (actuator command) on the MCP server."""
     taken = {p.name for p in tool.parameters}
     stamps = [p for p in _STAMP_PARAMS if p.name not in taken]
-    all_params = [*tool.parameters, *stamps]
+    dry = [_DRY_RUN_PARAM] if _DRY_RUN_PARAM.name not in taken else []
+    all_params = [*tool.parameters, *stamps, *dry]
 
     async def _execute(params: dict[str, Any]) -> dict[str, Any]:
         stamp = {p.name: params.pop(p.name, None) for p in stamps}
+        wants_dry_run = params.pop("dry_run", None) if dry else None
+        if wants_dry_run is True:
+            return await pipeline.preview(tool, params, current_identity(), _gate(mcp))
         return await pipeline.execute(
             tool,
             route,

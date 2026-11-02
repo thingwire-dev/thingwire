@@ -81,6 +81,31 @@ class RateLimiterBook:
             limiter.record()
         return None
 
+    def would_admit(
+        self,
+        device_id: str,
+        action: str,
+        action_cfg: dict[str, float] | None,
+        device_cfg: dict[str, float] | None,
+    ) -> tuple[str, float, float] | None:
+        """Like admit() but changes nothing: (scope, max_calls, window) of a full window."""
+        now = self._clock()
+        existing = (
+            ("device", device_cfg, self.device_limiters.get(device_id)),
+            ("action", action_cfg, self.limiters.get(device_id, {}).get(action)),
+        )
+        for scope, cfg, window in existing:
+            if not cfg:
+                continue
+            live = (
+                sum(1 for t in window.timestamps if now - t < window.window_seconds)
+                if window
+                else 0
+            )
+            if live >= int(cfg["max_calls"]):
+                return scope, float(cfg["max_calls"]), float(cfg["window_seconds"])
+        return None
+
     def prune(self) -> int:
         """Remove expired windows. Returns pruned count."""
         pruned = 0
