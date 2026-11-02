@@ -42,6 +42,12 @@ static unsigned long _phaseStartMs = 0;
 static unsigned long _nextBlinkMs = 0;
 static uint8_t _openness = 100;  // percent
 
+static char _text[DESKBOT_TEXT_MAX_CHARS + 1] = "";
+static bool _textVisible = false;
+static unsigned long _textUntilMs = 0;
+static int _forcedBlinks = 0;   // blink-action cycles still to run
+static bool _forcedSlow = false;
+
 static void _scheduleBlink(unsigned long now) {
     _nextBlinkMs = now + random(OLED_BLINK_MIN_MS, OLED_BLINK_MAX_MS);
 }
@@ -76,6 +82,16 @@ static void _drawEye(int cx, int w, int h, const Frame& f, bool isLeft) {
 static void _render() {
     const Frame& f = FRAMES[_expr];
     _display.clearDisplay();
+    if (_textVisible) {
+        // Opaque pixels only: one line, size 1, no wrapping, never interpreted
+        _display.setTextSize(1);
+        _display.setTextColor(SSD1306_WHITE);
+        _display.setTextWrap(false);
+        _display.setCursor(0, OLED_EYE_CENTER_Y - 4);
+        _display.print(_text);
+        _display.display();
+        return;
+    }
     _drawEye(OLED_EYE_LEFT_X, f.wL, f.hL, f, true);
     _drawEye(OLED_EYE_RIGHT_X, f.wR, f.hR, f, false);
     _display.display();
@@ -98,8 +114,12 @@ void tick() {
     }
     unsigned long now = millis();
     const Frame& f = FRAMES[_expr];
-    unsigned long closeMs = OLED_BLINK_CLOSE_MS * (f.slowBlink ? 2 : 1);
-    unsigned long openMs = OLED_BLINK_OPEN_MS * (f.slowBlink ? 2 : 1);
+    if (_textVisible && (long)(now - _textUntilMs) >= 0) {
+        clearText();
+    }
+    bool slow = f.slowBlink || _forcedSlow;
+    unsigned long closeMs = OLED_BLINK_CLOSE_MS * (slow ? 2 : 1);
+    unsigned long openMs = OLED_BLINK_OPEN_MS * (slow ? 2 : 1);
     uint8_t openness = _openness;
 
     switch (_phase) {
@@ -125,8 +145,14 @@ void tick() {
             unsigned long t = now - _phaseStartMs;
             if (t >= openMs) {
                 openness = 100;
-                _phase = BLINK_IDLE;
-                _scheduleBlink(now);
+                if (_forcedBlinks > 0 && --_forcedBlinks > 0) {
+                    _phase = BLINK_CLOSING;
+                    _phaseStartMs = now;
+                } else {
+                    _forcedSlow = false;
+                    _phase = BLINK_IDLE;
+                    _scheduleBlink(now);
+                }
             } else {
                 openness = (uint8_t)(t * 100 / openMs);
             }
@@ -150,7 +176,38 @@ void setExpression(Expression e) {
         return;
     }
     _expr = e;
+    clearText();
     _dirty = true;
+}
+
+void showText(const char* text, unsigned long ms) {
+    strncpy(_text, text, DESKBOT_TEXT_MAX_CHARS);
+    _text[DESKBOT_TEXT_MAX_CHARS] = '\0';
+    _textVisible = true;
+    _textUntilMs = millis() + ms;
+    _forcedBlinks = 0;   // text cancels a running blink
+    _forcedSlow = false;
+    _dirty = true;
+}
+
+void clearText() {
+    bool wasVisible = _textVisible;
+    _textVisible = false;
+    _text[0] = '\0';
+    _forcedBlinks = 0;
+    _forcedSlow = false;
+    if (wasVisible) {
+        _dirty = true;
+    }
+}
+
+bool isTextVisible() { return _textVisible; }
+
+void startBlink(int times, bool slow) {
+    _forcedBlinks = times;
+    _forcedSlow = slow;
+    _phase = BLINK_CLOSING;
+    _phaseStartMs = millis();
 }
 
 Expression getExpression() { return _expr; }

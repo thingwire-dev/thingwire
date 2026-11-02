@@ -33,7 +33,7 @@
 #define DESKBOT_PERSON_HOLD_MS 5000     // PIR stays "person" this long after last motion
 #define DESKBOT_PERSON_EVENT_GAP_MS 30000 // Min gap between person_seen events
 #define DESKBOT_PERSON_CONFIDENCE 0.6f  // PIR is a weak signal; report modest confidence
-#define DESKBOT_MQTT_BUFFER_SIZE 4096   // Desk bot TD exceeds the default 1024 bytes
+#define DESKBOT_MQTT_BUFFER_SIZE 6144   // Desk bot TD (about 4.6 KB) exceeds the default 1024 bytes
 
 #define OLED_I2C_ADDR 0x3C              // SSD1306 default address
 #define OLED_WIDTH 128
