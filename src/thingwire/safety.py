@@ -15,6 +15,7 @@ from typing import Any
 import yaml  # type: ignore[import-untyped]
 
 from thingwire.safety_codes import DecisionCode, SafetyError
+from thingwire.safety_config_check import ConfigError, check_config
 from thingwire.safety_defaults import default_config
 from thingwire.safety_freshness import EpochClock, FreshnessConfig
 from thingwire.safety_guards import SafetyGuards
@@ -72,11 +73,13 @@ class SafetyLayer:
         """Load safety configuration from YAML."""
         try:
             with open(config_path) as f:
-                self._config = yaml.safe_load(f) or {}
-            logger.info("Loaded safety config from %s", config_path)
-        except Exception:
-            logger.exception("Failed to load safety config from %s, using defaults", config_path)
-            self._load_defaults()
+                loaded = yaml.safe_load(f)
+        except (OSError, yaml.YAMLError) as exc:
+            # Never fall back to defaults here: they can be looser than the operator's file
+            raise ConfigError([f"{config_path}: cannot be read as YAML ({exc})"]) from exc
+        check_config(loaded)
+        self._config = loaded or {}
+        logger.info("Loaded safety config from %s", config_path)
 
     def _load_defaults(self) -> None:
         """Load sensible default safety configuration."""
