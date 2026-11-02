@@ -278,8 +278,8 @@ characters, lowercase). Rows written before the migration keep both null and are
   "reason": "<fixed string>|null"}` with reason one of `row_hash_mismatch`, `chain_break`,
   `unchained_after_chained`.
 - The hash is not a signature. Someone who can rewrite the whole database and recompute every
-  hash defeats it; section 8 lists this as residual risk. `thingwire.audit_verify` (module
-  `python -m thingwire.audit_verify <db> [--head <hash>]`) exits 0 when ok, 1 when not, 2 on a
+  hash defeats it; section 8 lists this as residual risk. `thingwire.safety_audit_chain` (run as
+  `python -m thingwire.safety_audit_chain <db> [--head <hash>]`) exits 0 when ok, 1 when not, 2 on a
   usage or open error.
 
 Index: `idx_commands_device_ts`. Safety transitions are also logged (`record_transition`) as rows
