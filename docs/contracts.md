@@ -80,6 +80,29 @@ name unless the action's `invokeaction` form declares `thingwire:target` and/or
 `(state, drop_reason)` changes (`safety_status.py`). A device in `estop` refuses commands with the
 ack `{"status": "error", "error": "ESTOP_LATCHED"}` and parks at pan 0, tilt 0.
 
+### 1.6 Desk bot `show_text` and `blink` messages (PLANNED)
+
+Same topics, same envelope and same ack as 1.2 and 1.3; nothing new on the wire.
+
+Command (`thingwire/{id}/command`, gateway to device), `target` and `command` equal the action name:
+
+```json
+{"action_id": "<uuid4>", "target": "show_text", "command": "show_text", "value": {"text": "hello", "duration_ms": 3000}, "issued_at": 1761900000.0}
+{"action_id": "<uuid4>", "target": "blink", "command": "blink", "value": {"times": 2, "speed": "slow"}, "issued_at": 1761900000.0}
+```
+
+`value` is the validated input object (`Decision.params`). Omitted optional inputs are left out;
+the device then uses its own defaults (2.3). The gateway never truncates, pads or rewrites
+`text`; it forwards the exact string it validated or denies the call.
+
+Ack (`thingwire/{id}/status`), exactly 1.3. Success: `{"action_id": "<id>", "status": "ok",
+"action": "show_text"}`. Failure: `{"action_id": "<id>", "status": "error", "action": "show_text",
+"error": "<message>"}`. The `ok` ack is sent when the device accepted and started the action, not
+when it finished (same as `nod`). The ack never echoes `text`. Device `error` messages for these
+actions are short fixed strings: `text too long`, `text charset`, `text blank`, `duration out of
+range`, `times out of range`, `unknown speed`, `display busy`, `ESTOP_LATCHED`. A device in
+`estop` answers with the 1.5 ack and changes nothing.
+
 ## 2. Desk bot Thing Description
 
 File: `td-library/desk-bot.td.json`, id `urn:thingwire:device:{device_id}`. Firmware generates the
@@ -96,6 +119,8 @@ Forms use `mqtt://{broker}/thingwire/{device_id}/<telemetry|command|event>`.
 | action | `set_expression` | `{expression}` required | enum above | true | idempotent |
 | action | `nod` | `{times}` required | 1..3 | true | not idempotent |
 | action | `sweep` | `{speed_deg_s}` required | 10..120 | **false** | needs approval; continues until the next motion command |
+| action | `show_text` | `{text}` required, `{duration_ms}` optional | **PLANNED** (2.3) | true | idempotent; untrusted text |
+| action | `blink` | `{times}` required, `{speed}` optional | **PLANNED** (2.3) | true | not idempotent |
 | event | `wake_word` | `{phrase, confidence}` | none | n/a | stretch, not emitted |
 | event | `person_seen` | `{confidence}` | none | n/a | |
 
@@ -136,6 +161,67 @@ Meta tools: `list_devices`, `get_device_status(device_id)`, `get_audit_log(devic
 (scope `audit:read`), and `emergency_stop(device_id, reason)` (scope `device:<id>:read`), which
 latches the e-stop for a known device. No MCP tool resets an e-stop; only
 `thingwire estop reset` on the gateway host does (section 7).
+
+### 2.3 Desk bot `show_text` and `blink` (PLANNED)
+
+Both actions use the standard `invokeaction` form on `.../command` and `"safe": true`. Neither
+drives a property and neither adds a TD property or event; the `expression` property keeps its
+meaning (the face underneath). Limits come from one device config source, never a literal in two
+places: `firmware/device-deskbot.yaml` gains `display.text_max_chars`, `display.text_default_ms`,
+`display.text_max_ms` and `blink.max_times`. The generator writes them into both the TD and
+`deskbot_gen.h` (as `nod` does today), and the generator fails if
+`display.text_max_chars` exceeds `floor(OLED_WIDTH / glyph_width)`. Display geometry
+(`docs/desk-bot-wiring.md`, `firmware/src/config.h`): SSD1306 128 x 64, I2C 0x3C, with the
+built in 6 x 8 pixel font at size 1, which gives 21 columns on one line. Text is drawn at size 1,
+one line, no wrapping, no scrolling. The default for `display.text_max_chars` is therefore 21.
+
+`show_text`:
+
+```json
+{"title": "Show text", "safe": true, "idempotent": true,
+ "input": {"type": "object", "additionalProperties": false, "required": ["text"], "properties": {
+   "text": {"type": "string", "minLength": 1, "maxLength": "<display.text_max_chars>",
+            "pattern": "^[ -~]+$"},
+   "duration_ms": {"type": "integer", "minimum": 1, "maximum": "<display.text_max_ms>"}}}}
+```
+
+(The TD carries the config values as numbers; `<...>` marks where they land.)
+
+- `text`: printable ASCII only, U+0020 to U+007E. Control characters (including `\n`, `\r`, `\t`
+  and NUL), DEL, and every non ASCII character are disallowed. There is no newline because the
+  display is one line. A string with no character other than space is blank and denied.
+- `duration_ms`: how long the text stays. Omitted means `display.text_default_ms`. There is no
+  "until further notice" value, so every text ends.
+- When the time ends, or when the next `show_text`, `set_expression`, e-stop trip or deadman park
+  arrives, the text is cleared and the device shows the current expression face again. A new
+  `show_text` replaces the visible text and restarts the timer. `set_expression` during a text
+  changes the stored expression and clears the text; it does not queue behind it.
+- Text is rendered as opaque pixels. The device never parses, formats, logs as a format string,
+  or acts on it (for example no "command in text" feature, and `%s` style fixed formats only).
+
+`blink`:
+
+```json
+{"title": "Blink", "safe": true, "idempotent": false,
+ "input": {"type": "object", "additionalProperties": false, "required": ["times"], "properties": {
+   "times": {"type": "integer", "minimum": 1, "maximum": "<blink.max_times>"},
+   "speed": {"type": "string", "enum": ["normal", "slow"]}}}}
+```
+
+- `speed` omitted means `normal`. `slow` doubles the lid close and open times, the same factor
+  the firmware already applies to the `sleepy` face (`slowBlink`, `OLED_BLINK_CLOSE_MS`,
+  `OLED_BLINK_OPEN_MS`). No other values exist.
+- A blink is `times` full close-and-open cycles of the current face. Afterwards the lids return to
+  the stored expression's frame and the random idle blink schedule resumes. The `expression`
+  telemetry reading does not change.
+- While a `show_text` is visible, `blink` is refused with the ack error `display busy` (the eyes
+  are not drawn). A `show_text` that arrives during a blink cancels the blink.
+- Neither action cancels or delays head motion (`nod`, `sweep`), and neither refreshes the
+  firmware deadman command timer (`deadman_timeout_ms`), so display traffic cannot keep a head
+  unparked.
+
+Scopes: `device:<id>:act:show_text` and `device:<id>:act:blink` (section 3 convention); tools
+`do_show_text` and `do_blink`; the safety layer and MCAP name them `do_show_text`, `do_blink`.
 
 ## 3. Scopes (issued by theAuth)
 
@@ -187,7 +273,7 @@ with `source` `safety`, `action` `safety:<event>`, `decision` `transition`,
 | --- | --- | --- | --- |
 | `OK` | yes | `MotionGuard` | within limits |
 | `RANGE_CLAMPED` | yes | `MotionGuard` | out-of-range input clamped (only when `out_of_range: clamp`) |
-| `INVALID_INPUT` | no | `MotionGuard` | axis value is not a finite number; **PLANNED**: or not a member of the TD `enum` (5.1) |
+| `INVALID_INPUT` | no | `MotionGuard` | axis value is not a finite number; **PLANNED**: or not a member of the TD `enum` (5.1); **PLANNED**: or a `show_text` / `blink` input that breaks the rules of 5.6 |
 | `OUT_OF_RANGE` | no | `MotionGuard` | outside TD `minimum`/`maximum` (default mode `reject`) |
 | `SLEW_EXCEEDED` | no | `MotionGuard` | faster than `maxSlewDegPerSec` from last known state |
 | `DEVICE_NOT_REGISTERED` | no | `SafetyLayer` | unknown device |
@@ -347,9 +433,60 @@ Origin is unchanged: only properties in `taint.perception_properties`, implausib
 configured untrusted origins are untrusted. A tolerance is a heuristic: arithmetic larger than
 the tolerance, or an agent that retypes a value in words, still escapes (section 8).
 
+### 5.6 Text and blink safety (PLANNED)
+
+Neither action is dangerous: `safe: true`, no `requires_approval` in the pin unless the operator
+adds one, and no new decision or reason code. The usual order applies (identity, freshness,
+taint, then `SafetyLayer`).
+
+1. Fail closed, gateway side. `MotionGuard` validates these inputs before the device sees them.
+   Any violation is a deny, the call is never forwarded, and nothing is truncated or clamped
+   (`out_of_range: clamp` never applies to `text`, `speed`, or an integer `times`):
+   - `INVALID_INPUT`, details `{axis: "text", reason}` with `reason` one of `missing`,
+     `not_string`, `too_long` (with `max_length`), `charset` (outside U+0020 to U+007E),
+     `control_char`, `blank`; `{axis: "speed", reason: "not_in_enum"}` (5.1); `{axis: "times" |
+     "duration_ms", reason: "not_integer"}` for a non integer or bool; `{reason:
+     "unknown_property"}` for an input key the TD does not declare. The details never contain the
+     rejected text.
+   - `OUT_OF_RANGE` for `times` or `duration_ms` outside the effective bounds, as for `nod`.
+   - The charset rule is fixed by this contract and enforced regardless of what a TD claims. The
+     effective `maxLength` is the smaller of the TD `maxLength` and a pin (5.4) `max_length`;
+     the effective numeric bounds follow the existing merge. A TD can narrow, never widen.
+2. Fail closed, device side. Firmware re-validates with the compiled in limits
+   (`display.text_max_chars`, `display.text_max_ms`, `blink.max_times`) and the same charset, and
+   answers `error` (1.6) without drawing anything. It must not rely on the gateway
+   (`AGENTS.md`, section 9). A payload that is not valid JSON, has a non string `text`, or lacks
+   `value` is an `error` ack.
+3. Untrusted text. `text` is data. Text that came from a sensor, scene, OCR, STT, web page, a
+   device property read, or model output is tainted: the existing taint policy and the ledger
+   (5.5, digest match of a string argument) apply, so a `show_text` linked to untrusted context
+   needs a theAuth approval or `taint:override`, per `taint.default_mode` or
+   `taint.actions.show_text`. The gateway and device never interpret `text` as an instruction,
+   tool call, config or path. Display is not a trust upgrade: showing text does not mark it safe,
+   and a read of the visible text elsewhere keeps its own provenance. Text with no ledger link
+   (for example freshly composed model output) cannot be detected as tainted; section 8 states
+   the residual risk.
+4. Rate limits. Both actions are ordinary actions for 5.2 and the current per action window:
+   `devices.<id>.rate_limits.show_text`, `devices.<id>.rate_limits.blink`, else
+   `global.default_rate_limit`; and, once 5.2 lands, `devices.<id>.device_rate_limit`, else
+   `global.device_rate_limit`. Both windows must have room, a call counts in both or neither,
+   and a breach is `RATE_LIMIT_EXCEEDED` with the 5.2 details. Defaults come from
+   `safety_config.yaml`; this section sets no number. Denied calls count towards
+   `global.denial_flood` when the code is in `denial_flood.counted_codes`.
+5. E-stop and deadman. Both are refused while the e-stop is latched: gateway
+   `ESTOP_LATCHED`, device ack `ESTOP_LATCHED` (1.5). Gateway `DEADMAN_SWITCH` applies as for
+   every actuator action. A trip clears visible text and any blink on the device and shows the
+   expression face. These paths do not need the broker, identity or the recorder to work on the
+   device.
+6. Audit. One `commands` row per call, no new column. `action` is `do_show_text` or `do_blink`,
+   `params_json` holds the input object, `decision` / `reason` hold the code above (or `OK`).
+   `text` is stored as given up to `taint.max_string_chars` characters (5.5); longer input is cut
+   in the log only, never in the command. Rows and MCAP records treat `text` as untrusted data:
+   consumers must not render it as markup or follow it as instructions.
+
 New codes are UPPER_SNAKE_CASE strings. Adding one is a contract change. PLANNED config keys are
 listed with their sections: `global.device_rate_limit` (5.2), `global.command_freshness` (5.3),
-`td_trust` (5.4) and `taint.match_tolerance` and friends (5.5). Config keys
+`td_trust` (5.4), `taint.match_tolerance` and friends (5.5), and the 5.6 pin key `max_length`. Device config keys in `firmware/device-deskbot.yaml`: `display.text_max_chars`, `display.text_default_ms`, `display.text_max_ms`, `blink.max_times` (2.3). Config keys
 (`safety_config.yaml`): `global.require_confirmation_for_dangerous`,
 `global.deadman_switch_timeout_seconds` (default 300), `global.default_rate_limit`
 (`max_calls` 10, `window_seconds` 60), `global.out_of_range` (`reject` or `clamp`), `global.estop.authorized_resetters` (default
@@ -410,6 +547,10 @@ Honest limits, so nobody reads the benchmark as a guarantee:
   perception (5.5); free text from a device property that is not marked perception is treated
   as device telemetry. Mitigations are outside the gateway: narrow scopes, approval policy on
   perception data, and an agent that does not obey text from sensors.
+- Text shown on the display (5.6). A legal `show_text` caused by perception text that the agent
+  retyped, or by model output with no ledger link, cannot be told from a deliberate one. The
+  harm is bounded to `display.text_max_chars` printable characters for a bounded time, but a human
+  reading it may still be misled; the gateway cannot prevent that.
 - Taint matching is a heuristic (5.5). A value rewritten beyond the tolerance, or retyped in
   words, is not linked.
 - Freshness (5.3) stops an old captured stamp from being reused. It does not stop an attacker who
@@ -420,3 +561,31 @@ Honest limits, so nobody reads the benchmark as a guarantee:
 - Pins (5.4) protect registered ids only; a device that spoofs an id is a broker ACL problem.
 - Device side enforcement (firmware range, slew and freshness checks) is separate work and the
   gateway must not be the only line (`AGENTS.md`, section 9).
+
+## 9. Desk bot text and blink: test pins and scope (PLANNED)
+
+Cross-component checks that must stay green: `tests/test_deskbot_td_match.py` (its expected
+action set grows to include `show_text` and `blink` in the implementing PR, and the generated
+`deskbot_gen.h` and the library TD stay identical), the TD tool compiler tests, replay
+determinism, the safety and e-stop tests, and the dash check.
+
+New cases the implementing PRs must add:
+- Length boundary: `text` of exactly `maxLength` allowed, one more `INVALID_INPUT` /
+  `too_long`; empty and all space denied (`missing` or `blank`). Same boundary in firmware.
+- Charset: U+0020 and U+007E allowed, U+001F, U+007F, `\n`, NUL, U+00E9 and an emoji denied
+  with `charset` or `control_char`; non string `text` denied.
+- `duration_ms` and `times` at, below and above bounds (`OUT_OF_RANGE`), non integers denied,
+  `speed` outside the enum denied, unknown input key denied, and no clamping in `clamp` mode.
+- Rate limit: per action and per device windows, with a config override, and no hardcoded number.
+- E-stop: both actions refused while latched (gateway and virtual bot), trip clears text.
+- Taint: a `show_text` whose string equals a perception read needs approval; with
+  `taint:override` it proceeds.
+- Firmware mirror: a test that parses `device-deskbot.yaml`, `deskbot_gen.h` and the library TD
+  and asserts one value for `text_max_chars`, `text_max_ms` and `blink.max_times`, and that the
+  virtual bot enforces the same limits and acks with the 1.6 error strings.
+- Restore: after `blink` and after text expiry the stored expression is shown (virtual bot).
+
+Not in scope: speech or any audio, graphics or bitmap upload, markup or styling of any kind,
+multi-line layout, scrolling, fonts, non ASCII text, and any new telemetry property or event for
+the display. The simulator viewer cannot show text until a separate contract adds a way to
+publish it.
