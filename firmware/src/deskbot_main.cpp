@@ -12,7 +12,16 @@
 static bool _tdPublished = false;
 static unsigned long _lastTelemetryMs = 0;
 
+static bool isEstopTopic(const char* topic) {
+    size_t n = strlen(topic);
+    return strcmp(topic, "thingwire/estop") == 0 || (n >= 6 && strcmp(topic + n - 6, "/estop") == 0);
+}
+
 static void onCommand(const char* topic, const char* payload) {
+    if (isEstopTopic(topic)) {
+        DeskbotController::handleEstop(payload);
+        return;
+    }
     Serial.printf("[Deskbot] Command on %s: %s\n", topic, payload);
     char* ack = DeskbotController::handleCommand(payload);
     if (ack) {

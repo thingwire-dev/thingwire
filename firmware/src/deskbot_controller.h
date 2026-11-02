@@ -11,6 +11,12 @@ namespace DeskbotController {
     /// Handle an MQTT command JSON, returns ack JSON. Caller must free() it
     char* handleCommand(const char* payload);
 
+    /// Handle a message on an estop topic: {"reset": true} clears the latch, anything else trips it
+    void handleEstop(const char* payload);
+
+    /// True while the e-stop is latched (survives a reboot)
+    bool isEstopped();
+
     /// True while the head is parked because the deadman timer fired
     bool isDeadmanParked();
 }

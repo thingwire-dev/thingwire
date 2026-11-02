@@ -5,6 +5,7 @@
 #include "servo_head.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include <math.h>
 #include <string.h>
 
@@ -19,6 +20,30 @@ static bool _nodDown = true;
 static bool _sweepToMax = false;
 static unsigned long _lastCommandMs = 0;
 static bool _deadmanParked = false;
+static bool _estopped = false;
+static Preferences _prefs;
+#define ESTOP_NVS_NAMESPACE "tw-safety"
+#define ESTOP_NVS_KEY "estop"
+
+/// Persist the latch so a reboot (or a power cycle) cannot clear a stop; fail closed
+static void _saveEstop(bool latched) {
+    if (_prefs.begin(ESTOP_NVS_NAMESPACE, false)) {
+        _prefs.putBool(ESTOP_NVS_KEY, latched);
+        _prefs.end();
+    }
+}
+
+static bool _loadEstop() {
+    bool latched = true;  // unreadable storage means latched
+    if (_prefs.begin(ESTOP_NVS_NAMESPACE, true)) {
+        latched = _prefs.getBool(ESTOP_NVS_KEY, false);
+        _prefs.end();
+    } else {
+        // namespace missing on a fresh device: nothing was ever latched
+        latched = false;
+    }
+    return latched;
+}
 
 static void _startNod(int times) {
     _nodBase = ServoHead::getTarget(ServoHead::TILT);
@@ -74,6 +99,11 @@ void init() {
     _seq = SEQ_NONE;
     _lastCommandMs = millis();
     _deadmanParked = false;
+    _estopped = _loadEstop();
+    if (_estopped) {
+        ServoHead::park();
+        Serial.println("[Deskbot] E-stop latched at boot, refusing commands");
+    }
 }
 
 void tick() {
@@ -92,6 +122,28 @@ void tick() {
 }
 
 bool isDeadmanParked() { return _deadmanParked; }
+
+bool isEstopped() { return _estopped; }
+
+void handleEstop(const char* payload) {
+    JsonDocument doc;
+    bool isReset = !deserializeJson(doc, payload) && doc.is<JsonObject>() &&
+                   doc["reset"].is<bool>() && doc["reset"].as<bool>();
+    if (isReset) {
+        _estopped = false;
+        _saveEstop(false);
+        _lastCommandMs = millis();  // the head stays parked until the next command
+        Serial.println("[Deskbot] E-stop reset");
+        return;
+    }
+    // Any other message, including garbage, trips the stop (fail closed)
+    _estopped = true;
+    _saveEstop(true);
+    _cancelSequence();
+    OledEyes::clearText();
+    ServoHead::park();
+    Serial.println("[Deskbot] E-stop tripped, head parked");
+}
 
 /// Read a number from value (object field or bare scalar); false if absent or not numeric
 static bool _num(JsonVariantConst value, const char* field, float* out) {
@@ -160,7 +212,13 @@ char* handleCommand(const char* payload) {
     JsonDocument ack;
     DeserializationError err = deserializeJson(doc, payload);
 
-    if (err) {
+    if (_estopped) {
+        // Latched: change nothing and say why (contracts 1.5)
+        const char* latchedId = err ? "unknown" : (doc["action_id"] | "unknown");
+        ack["action_id"] = latchedId;
+        ack["status"] = "error";
+        ack["error"] = "ESTOP_LATCHED";
+    } else if (err) {
         Serial.printf("[Deskbot] Invalid command JSON: %s\n", err.c_str());
         ack["status"] = "error";
         ack["error"] = "Invalid JSON";

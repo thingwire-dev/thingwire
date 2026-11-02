@@ -18,6 +18,8 @@ static unsigned long _lastReconnectMs = 0;
 static char _topicTelemetry[TOPIC_BUF_SIZE];
 static char _topicCommand[TOPIC_BUF_SIZE];
 static char _topicStatus[TOPIC_BUF_SIZE];
+static char _topicEstop[TOPIC_BUF_SIZE];
+#define TOPIC_ESTOP_GLOBAL "thingwire/estop"
 
 static void _buildTopics() {
     const char* prefix = WiFiManager::getMqttBroker();
@@ -25,6 +27,7 @@ static void _buildTopics() {
     snprintf(_topicTelemetry, TOPIC_BUF_SIZE, "thingwire/%s/telemetry", DEVICE_ID);
     snprintf(_topicCommand, TOPIC_BUF_SIZE, "thingwire/%s/command", DEVICE_ID);
     snprintf(_topicStatus, TOPIC_BUF_SIZE, "thingwire/%s/status", DEVICE_ID);
+    snprintf(_topicEstop, TOPIC_BUF_SIZE, "thingwire/%s/estop", DEVICE_ID);
 }
 
 static void _mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -55,6 +58,10 @@ static bool _reconnect() {
         // Subscribe to commands
         _mqtt.subscribe(_topicCommand);
         Serial.printf("[MQTT] Subscribed to %s\n", _topicCommand);
+
+        // E-stop topics: a trip must reach the device even when it is idle (contracts 1.5, 7)
+        _mqtt.subscribe(_topicEstop);
+        _mqtt.subscribe(TOPIC_ESTOP_GLOBAL);
 
         return true;
     }
