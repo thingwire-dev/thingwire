@@ -256,6 +256,32 @@ Created in `audit_log.py`. The last five columns are added by migration if missi
 | `decision` | TEXT | `allow` or `deny` (`Decision.decision`) |
 | `reason` | TEXT | a code from section 5 |
 
+### 4.1 Tamper evident chain (PLANNED)
+
+Two nullable columns, added by the same migration: `prev_hash` TEXT and `row_hash` TEXT (64 hex
+characters, lowercase). Rows written before the migration keep both null and are not covered.
+
+- `row_hash` is SHA-256 over the UTF-8 bytes of `prev_hash` (empty string for the first chained
+  row) followed by a newline and the compact JSON array (`separators=(",", ":")`,
+  `ensure_ascii=true`) of `[timestamp, device_id, action, params_json, result_json, confirmed,
+  source, agent_id, delegation_chain, scopes, decision, reason]` exactly as stored. `id` is not
+  hashed, so a row can be hashed before its id is known.
+- `prev_hash` of a new row is the `row_hash` of the chained row with the highest `id` at write
+  time. Writes are serialised, so the chain is linear.
+- Verification walks chained rows in `id` order and fails on a recomputed `row_hash` that differs
+  from the stored one (an edited row), a `prev_hash` that is not the previous row's `row_hash`
+  (a deleted, inserted or reordered row), or a chained row after an unchained one. The first
+  chained row's `prev_hash` is the anchor and is trusted as stored, because retention rotation
+  deletes old rows. Truncating the newest rows or the oldest rows is therefore only detectable
+  against a `head` hash (the `row_hash` of the newest row) that the operator saved elsewhere.
+- Result shape: `{"ok": bool, "checked": int, "head": "<row_hash>|null", "first_bad_id": int|null,
+  "reason": "<fixed string>|null"}` with reason one of `row_hash_mismatch`, `chain_break`,
+  `unchained_after_chained`, `head_mismatch` (a given `--head` differs from the newest row hash).
+- The hash is not a signature. Someone who can rewrite the whole database and recompute every
+  hash defeats it; section 8 lists this as residual risk. `thingwire.safety_audit_chain` (run as
+  `python -m thingwire.safety_audit_chain <db> [--head <hash>]`) exits 0 when ok, 1 when not, 2 on a
+  usage or open error.
+
 Index: `idx_commands_device_ts`. Safety transitions are also logged (`record_transition`) as rows
 with `source` `safety`, `action` `safety:<event>`, `decision` `transition`,
 `reason` `<state>:<drop_reason or last_decision_code>`, `agent_id` = actor.
@@ -506,6 +532,34 @@ the context is the provenance of values the same agent read within the window wh
 reappear in the call's numeric arguments. `require_approval` asks theAuth; `approved` comes only
 from a theAuth approval, never from tool arguments.
 
+### 5.7 Dry run (PLANNED)
+
+Every action tool accepts an optional boolean `dry_run` (default false), next to the freshness
+stamp (5.3). A TD input named `dry_run` keeps its own meaning and the tool then has no dry run
+flag, as for the stamp. With `dry_run: true` the gateway answers whether the call would be
+allowed, and does nothing else:
+
+- No command is published, no approval is requested, no theAuth approval is consumed.
+- No state changes: the nonce is not recorded, motion history and rate limit windows are not
+  advanced, denial counters and the flood guard are not incremented, no e-stop or deadman latch
+  is tripped, the taint ledger is not modified. Calling it any number of times changes nothing.
+- Order of the checks: identity scope (a missing scope is reported, not hidden), taint verdict,
+  then the safety checks in the usual order (e-stop latch, flood, allowlist, deadman, approval
+  need, ranges and slew, rate limits). Freshness is not evaluated because judging a nonce
+  records it; the result says so.
+- Result: `{"status": "dry_run", "would_allow": bool, "needs_approval": bool, "code": "<code>",
+  "message": "<text>", "details": {...}, "value": <validated params or null>,
+  "not_evaluated": ["freshness"]}`. `would_allow` is true only when the real call would reach the
+  device if every required approval were granted. `needs_approval` is true for a dangerous action,
+  or one the taint policy sends to a human; then `code` is the code the real call would return
+  (`APPROVAL_REQUIRED` or `TAINTED_CONTEXT_REQUIRES_APPROVAL`) and `would_allow` is true only when
+  nothing else would deny it. A denial carries its normal code and details.
+- A passed dry run is not a promise. State can change before the real call, which is checked
+  again in full. The same limits and pins apply; a dry run never reveals more than the TD and the
+  caller's scopes already show.
+- Audit: one `commands` row per dry run, `action` the tool name, `decision` `dry_run`, `reason`
+  the code above, `params_json` the input. MCAP records nothing. Rate limiting of dry runs
+  themselves is separate PLANNED work.
 ### 5.8 Config validation at start (PLANNED)
 
 `safety_config.yaml` is validated when the safety layer is built, and a file that fails makes the
@@ -592,6 +646,8 @@ Honest limits, so nobody reads the benchmark as a guarantee:
 - Pins (5.4) protect registered ids only; a device that spoofs an id is a broker ACL problem.
 - Device side enforcement (firmware range, slew and freshness checks) is separate work and the
   gateway must not be the only line (`AGENTS.md`, section 9).
+- The audit chain (4.1) detects edits, deletions and reordering, not a rewrite of the whole
+  database with every hash recomputed, and it detects truncation only against a saved `head`.
 
 ## 9. Desk bot text and blink: test pins and scope (PLANNED)
 
