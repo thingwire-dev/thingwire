@@ -34,6 +34,18 @@ PINS: dict[str, Any] = {
                     }
                 },
                 "nod": {"inputs": {"times": {"minimum": 1, "maximum": 3}}},
+                "show_text": {
+                    "inputs": {
+                        "text": {"max_length": 21},
+                        "duration_ms": {"minimum": 1, "maximum": 10000},
+                    }
+                },
+                "blink": {
+                    "inputs": {
+                        "times": {"minimum": 1, "maximum": 3},
+                        "speed": {"enum": ["normal", "slow"]},
+                    }
+                },
                 "sweep": {
                     "requires_approval": True,
                     "inputs": {"speed_deg_s": {"minimum": 10, "maximum": 120}},

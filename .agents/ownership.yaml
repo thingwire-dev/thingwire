@@ -55,6 +55,21 @@ rules:
     paths: ["docker/theauth/**", "src/thingwire/identity*.py", "tests/test_identity*.py"]
   - branch: "feat/w4-*"
     paths: ["src/thingwire/recorder.py", tests/test_recorder.py]
+  - branch: "feat/w5-show-text-*"
+    paths:
+      - "firmware/**"
+      - "scripts/desk_bot_display.py"
+      - "scripts/virtual_desk_bot.py"
+      - "src/thingwire/safety_text.py"
+      - "src/thingwire/safety_motion.py"
+      - "src/thingwire/safety_pins.py"
+      - "tests/test_safety_text.py"
+      - "tests/test_safety_pins.py"
+      - "tests/test_virtual_desk_bot_display.py"
+      - "tests/test_deskbot_td_match.py"
+      - "docs/contracts.md"
+      - ".agents/strict-files.txt"
+      - ".agents/ownership.yaml"
   - branch: "feat/w5-*"
     paths: ["firmware/**", docs/desk-bot-wiring.md, tests/test_deskbot_td_match.py]
   - branch: "feat/w6-*"

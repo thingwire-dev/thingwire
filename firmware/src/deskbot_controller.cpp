@@ -82,6 +82,7 @@ void tick() {
         _cancelSequence();
         ServoHead::park();
         _deadmanParked = true;
+        OledEyes::clearText();
         Serial.println("[Deskbot] Deadman timeout, parking head");
     }
     if (_seq == SEQ_NOD) {
@@ -101,6 +102,81 @@ static bool _num(JsonVariantConst value, const char* field, float* out) {
     }
     *out = v.as<float>();
     return !isnan(*out);
+}
+
+/// True for the printable ASCII range U+0020 to U+007E
+static bool _printable(const char* s) {
+    for (; *s; s++) {
+        if (*s < 0x20 || *s > 0x7E) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool _blank(const char* s) {
+    for (; *s; s++) {
+        if (*s != ' ') {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Read an integer field (not a float, not a bool); false if absent or not an integer
+static bool _int(JsonVariantConst value, const char* field, long* out) {
+    JsonVariantConst v = value.is<JsonObjectConst>() ? value[field] : JsonVariantConst();
+    if (!v.is<long>() || v.is<bool>()) {
+        return false;
+    }
+    *out = v.as<long>();
+    return true;
+}
+
+/// show_text: the device re-validates with compiled in limits and never trusts the gateway
+static const char* _showText(JsonVariantConst value) {
+    JsonVariantConst t = value.is<JsonObjectConst>() ? value["text"] : JsonVariantConst();
+    if (!t.is<const char*>()) {
+        return "text charset";
+    }
+    const char* text = t.as<const char*>();
+    if (!_printable(text)) {
+        return "text charset";
+    }
+    if (_blank(text)) {
+        return "text blank";
+    }
+    if (strlen(text) > DESKBOT_TEXT_MAX_CHARS) {
+        return "text too long";
+    }
+    long ms = DESKBOT_TEXT_DEFAULT_MS;
+    if (!value["duration_ms"].isNull() &&
+        (!_int(value, "duration_ms", &ms) || ms < 1 || ms > (long)DESKBOT_TEXT_MAX_MS)) {
+        return "duration out of range";
+    }
+    OledEyes::showText(text, (unsigned long)ms);
+    return nullptr;
+}
+
+static const char* _blink(JsonVariantConst value) {
+    long times;
+    if (!_int(value, "times", &times) || times < 1 || times > DESKBOT_BLINK_MAX_TIMES) {
+        return "times out of range";
+    }
+    bool slow = false;
+    if (!value["speed"].isNull()) {
+        const char* speed = value["speed"].is<const char*>() ? value["speed"].as<const char*>() : "";
+        if (strcmp(speed, "slow") == 0) {
+            slow = true;
+        } else if (strcmp(speed, "normal") != 0) {
+            return "unknown speed";
+        }
+    }
+    if (OledEyes::isTextVisible()) {
+        return "display busy";
+    }
+    OledEyes::startBlink((int)times, slow);
+    return nullptr;
 }
 
 /// Execute one action; returns nullptr on success or an error message
@@ -152,7 +228,18 @@ static const char* _execute(const char* action, JsonVariantConst value) {
         _startSweep(speed);
         return nullptr;
     }
+    if (strcmp(action, "show_text") == 0) {
+        return _showText(value);
+    }
+    if (strcmp(action, "blink") == 0) {
+        return _blink(value);
+    }
     return "unknown action";
+}
+
+/// Display actions never refresh the deadman timer, so they cannot keep a head unparked
+static bool _isDisplayAction(const char* action) {
+    return strcmp(action, "show_text") == 0 || strcmp(action, "blink") == 0;
 }
 
 char* handleCommand(const char* payload) {
@@ -176,8 +263,10 @@ char* handleCommand(const char* payload) {
             ack["error"] = error;
         } else {
             ack["status"] = "ok";
-            _lastCommandMs = millis();
-            _deadmanParked = false;
+            if (!_isDisplayAction(target)) {
+                _lastCommandMs = millis();
+                _deadmanParked = false;
+            }
         }
     }
 

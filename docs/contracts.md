@@ -80,7 +80,7 @@ name unless the action's `invokeaction` form declares `thingwire:target` and/or
 `(state, drop_reason)` changes (`safety_status.py`). A device in `estop` refuses commands with the
 ack `{"status": "error", "error": "ESTOP_LATCHED"}` and parks at pan 0, tilt 0.
 
-### 1.6 Desk bot `show_text` and `blink` messages (PLANNED)
+### 1.6 Desk bot `show_text` and `blink` messages
 
 Same topics, same envelope and same ack as 1.2 and 1.3; nothing new on the wire.
 
@@ -119,8 +119,8 @@ Forms use `mqtt://{broker}/thingwire/{device_id}/<telemetry|command|event>`.
 | action | `set_expression` | `{expression}` required | enum above | true | idempotent |
 | action | `nod` | `{times}` required | 1..3 | true | not idempotent |
 | action | `sweep` | `{speed_deg_s}` required | 10..120 | **false** | needs approval; continues until the next motion command |
-| action | `show_text` | `{text}` required, `{duration_ms}` optional | **PLANNED** (2.3) | true | idempotent; untrusted text |
-| action | `blink` | `{times}` required, `{speed}` optional | **PLANNED** (2.3) | true | not idempotent |
+| action | `show_text` | `{text}` required, `{duration_ms}` optional | (2.3) | true | idempotent; untrusted text |
+| action | `blink` | `{times}` required, `{speed}` optional | (2.3) | true | not idempotent |
 | event | `wake_word` | `{phrase, confidence}` | none | n/a | stretch, not emitted |
 | event | `person_seen` | `{confidence}` | none | n/a | |
 
@@ -161,7 +161,7 @@ Meta tools: `list_devices`, `get_device_status(device_id)`, `get_audit_log(devic
 latches the e-stop for a known device. No MCP tool resets an e-stop; only
 `thingwire estop reset` on the gateway host does (section 7).
 
-### 2.3 Desk bot `show_text` and `blink` (PLANNED)
+### 2.3 Desk bot `show_text` and `blink`
 
 Both actions use the standard `invokeaction` form on `.../command` and `"safe": true`. Neither
 drives a property and neither adds a TD property or event; the `expression` property keeps its
@@ -272,7 +272,7 @@ with `source` `safety`, `action` `safety:<event>`, `decision` `transition`,
 | --- | --- | --- | --- |
 | `OK` | yes | `MotionGuard` | within limits |
 | `RANGE_CLAMPED` | yes | `MotionGuard` | out-of-range input clamped (only when `out_of_range: clamp`) |
-| `INVALID_INPUT` | no | `MotionGuard` | axis value is not a finite number; or not a member of the TD `enum` (5.1); **PLANNED**: or a `show_text` / `blink` input that breaks the rules of 5.6 |
+| `INVALID_INPUT` | no | `MotionGuard` | axis value is not a finite number; or not a member of the TD `enum` (5.1); or a `show_text` / `blink` input that breaks the rules of 5.6 |
 | `OUT_OF_RANGE` | no | `MotionGuard` | outside TD `minimum`/`maximum` (default mode `reject`) |
 | `SLEW_EXCEEDED` | no | `MotionGuard` | faster than `maxSlewDegPerSec` from last known state |
 | `DEVICE_NOT_REGISTERED` | no | `SafetyLayer` | unknown device |
@@ -439,7 +439,7 @@ configured untrusted origins are untrusted. Matching over-approximates on purpos
 A tolerance is a heuristic: arithmetic larger than
 the tolerance, or an agent that retypes a value in words, still escapes (section 8).
 
-### 5.6 Text and blink safety (PLANNED)
+### 5.6 Text and blink safety
 
 Neither action is dangerous: `safe: true`, no `requires_approval` in the pin unless the operator
 adds one, and no new decision or reason code. The usual order applies (identity, freshness,
@@ -484,6 +484,8 @@ taint, then `SafetyLayer`).
    every actuator action. A trip clears visible text and any blink on the device and shows the
    expression face. These paths do not need the broker, identity or the recorder to work on the
    device.
+   The gateway and the virtual bot latch today; the firmware clears text on a deadman park but has
+   no e-stop latch yet (**PLANNED**).
 6. Audit. One `commands` row per call, no new column. `action` is `do_show_text` or `do_blink`,
    `params_json` holds the input object, `decision` / `reason` hold the code above (or `OK`).
    `text` is stored as given up to `taint.max_string_chars` characters (5.5); longer input is cut
@@ -493,7 +495,7 @@ taint, then `SafetyLayer`).
 New codes are UPPER_SNAKE_CASE strings. Adding one is a contract change. Config keys added with
 the hardening work are listed with their sections: `global.device_rate_limit` (5.2),
 `global.command_freshness` (5.3), `td_trust` (5.4), `taint.match_tolerance` and friends (5.5);
-the 5.6 pin key `max_length` is PLANNED. Device config keys in `firmware/device-deskbot.yaml`: `display.text_max_chars`, `display.text_default_ms`, `display.text_max_ms`, `blink.max_times` (2.3). Config keys
+the 5.6 pin key `max_length` (text length, the smaller of pin and TD wins). Device config keys in `firmware/device-deskbot.yaml`: `display.text_max_chars`, `display.text_default_ms`, `display.text_max_ms`, `blink.max_times` (2.3). Config keys
 (`safety_config.yaml`): `global.require_confirmation_for_dangerous`,
 `global.deadman_switch_timeout_seconds` (default 300), `global.default_rate_limit`
 (`max_calls` 10, `window_seconds` 60), `global.out_of_range` (`reject` or `clamp`), `global.estop.authorized_resetters` (default
@@ -569,7 +571,7 @@ Honest limits, so nobody reads the benchmark as a guarantee:
 - Device side enforcement (firmware range, slew and freshness checks) is separate work and the
   gateway must not be the only line (`AGENTS.md`, section 9).
 
-## 9. Desk bot text and blink: test pins and scope (PLANNED)
+## 9. Desk bot text and blink: test pins and scope
 
 Cross-component checks that must stay green: `tests/test_deskbot_td_match.py` (its expected
 action set grows to include `show_text` and `blink` in the implementing PR, and the generated

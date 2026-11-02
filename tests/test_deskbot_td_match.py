@@ -41,7 +41,14 @@ def test_td_has_contract_surface() -> None:
     gen = _load_gen()
     td = gen.build_td(gen.load_config())
     assert set(td["properties"]) == {"head_pan", "head_tilt", "expression", "person_detected"}
-    assert set(td["actions"]) == {"look_at", "set_expression", "nod", "sweep"}
+    assert set(td["actions"]) == {
+        "look_at",
+        "set_expression",
+        "nod",
+        "sweep",
+        "show_text",
+        "blink",
+    }
     assert set(td["events"]) == {"wake_word", "person_seen"}
     assert td["actions"]["sweep"]["safe"] is False
     assert td["properties"]["head_pan"]["maxSlewDegPerSec"] == 90

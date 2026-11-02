@@ -20,7 +20,7 @@ EVENT_WIDENED = "td_limit_widened"
 EVENT_APPROVAL_LOWERED = "td_approval_lowered"
 EVENT_UNPINNED_ACTION = "td_action_unpinned"
 UNPINNED_MODES = frozenset({"auto", "deny", "trust"})
-_AXIS_KEYS = frozenset({"minimum", "maximum", "max_slew_deg_per_sec", "enum"})
+_AXIS_KEYS = frozenset({"minimum", "maximum", "max_slew_deg_per_sec", "enum", "max_length"})
 
 
 @dataclass(frozen=True)
@@ -31,6 +31,7 @@ class PinnedAxis:
     maximum: float | None = None
     max_slew_deg_per_sec: float | None = None
     enum: tuple[Any, ...] | None = None
+    max_length: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -38,6 +39,7 @@ class PinnedAxis:
             "maximum": self.maximum,
             "slew": self.max_slew_deg_per_sec,
             "enum": list(self.enum) if self.enum is not None else None,
+            "max_length": self.max_length,
         }
 
 
@@ -106,11 +108,15 @@ def _axis(spec: Any, where: str) -> PinnedAxis:
     if enum is not None and (not isinstance(enum, list) or not enum):
         raise ValueError(f"{where}.enum must be a non-empty list")
     num = {k: _number(spec[k], f"{where}.{k}") for k in _AXIS_KEYS - {"enum"} if k in spec}
+    max_len = num.get("max_length")
+    if max_len is not None and (max_len < 1 or max_len != int(max_len)):
+        raise ValueError(f"{where}.max_length must be a positive integer")
     return PinnedAxis(
         num.get("minimum"),
         num.get("maximum"),
         num.get("max_slew_deg_per_sec"),
         tuple(enum) if enum is not None else None,
+        int(max_len) if max_len is not None else None,
     )
 
 
@@ -168,12 +174,13 @@ class TdTrust:
 
 def td_view(lim: AxisLimit | None) -> dict[str, Any]:
     if lim is None:
-        return {"minimum": None, "maximum": None, "slew": None, "enum": None}
+        return {"minimum": None, "maximum": None, "slew": None, "enum": None, "max_length": None}
     return {
         "minimum": lim.minimum,
         "maximum": lim.maximum,
         "slew": lim.max_slew_deg_per_sec,
         "enum": list(lim.enum) if lim.enum is not None else None,
+        "max_length": lim.max_length,
     }
 
 
@@ -198,7 +205,12 @@ def merge_axis(td: AxisLimit | None, pin: PinnedAxis) -> tuple[AxisLimit, list[s
         enum = tuple(p for p in pin.enum if t.enum is None or any(same_json(p, e) for e in t.enum))
         if t.enum is None or any(not any(same_json(e, p) for p in pin.enum) for e in t.enum):
             wide.append("enum")
-    return AxisLimit(lo, hi, slew, enum, t.slew_key), wide
+    max_len = t.max_length
+    if pin.max_length is not None:
+        max_len = pin.max_length if t.max_length is None else min(t.max_length, pin.max_length)
+        if t.max_length is None or t.max_length > pin.max_length:
+            wide.append("max_length")
+    return AxisLimit(lo, hi, slew, enum, t.slew_key, max_len), wide
 
 
 def _tighter(a: float | None, b: float | None, strict: Callable[..., float]) -> float | None:

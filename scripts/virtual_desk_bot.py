@@ -22,6 +22,7 @@ import paho.mqtt.client as mqtt
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from desk_bot_display import DisplayMixin
 from desk_bot_estop import EstopMixin
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ def _clamp_step(current: float, target: float, max_delta: float) -> float:
     return target if abs(delta) <= max_delta else current + math.copysign(max_delta, delta)
 
 
-class DeskBot(EstopMixin):
+class DeskBot(DisplayMixin, EstopMixin):
     """Pure simulation state: head pose, expression, scene. No MQTT here."""
 
     def __init__(self, scene: dict[str, Any] | None = None, max_slew: float = DEFAULT_SLEW) -> None:
@@ -74,11 +75,13 @@ class DeskBot(EstopMixin):
         self._waypoints: list[tuple[float, float]] = []
         self._sweep_speed: float | None = None
         self._sweep_dir = 1.0
+        self.init_display()
 
     # --- motion ---------------------------------------------------------
 
     def step(self, dt: float) -> None:
         """Advance the simulation by dt seconds, never exceeding the slew limit."""
+        self.step_display(dt)
         if self._sweep_speed is not None:
             edge = PAN_LIMIT * self._sweep_dir
             self._target = (edge, self.tilt)
@@ -147,6 +150,8 @@ class DeskBot(EstopMixin):
                 "set_expression": self._set_expression,
                 "nod": self._nod,
                 "sweep": self._sweep,
+                "show_text": self.show_text,
+                "blink": self.blink,
             }[name]
             handler(args)
         except KeyError as exc:
@@ -159,7 +164,7 @@ class DeskBot(EstopMixin):
 
     @staticmethod
     def _action_name(cmd: dict[str, Any]) -> str:
-        known = ("look_at", "set_expression", "nod", "sweep")
+        known = ("look_at", "set_expression", "nod", "sweep", "show_text", "blink")
         for candidate in (cmd.get("command"), cmd.get("action")):
             if candidate in known:
                 return str(candidate)
@@ -186,6 +191,7 @@ class DeskBot(EstopMixin):
         if expression not in EXPRESSIONS:
             raise ValueError(f"Unknown expression: {expression}")
         self.expression = expression
+        self.clear_display()
 
     def _nod(self, args: dict[str, Any]) -> None:
         times = int(args["times"])

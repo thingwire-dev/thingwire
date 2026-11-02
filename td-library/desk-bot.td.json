@@ -78,6 +78,8 @@
     "look_at": {
       "title": "Look at",
       "description": "Turn the head to a pan/tilt angle. Motion is slew limited.",
+      "safe": true,
+      "idempotent": true,
       "input": {
         "type": "object",
         "properties": {
@@ -99,8 +101,6 @@
           "tilt"
         ]
       },
-      "safe": true,
-      "idempotent": true,
       "forms": [
         {
           "href": "mqtt://{broker}/thingwire/{device_id}/command",
@@ -111,6 +111,8 @@
     "set_expression": {
       "title": "Set expression",
       "description": "Change the OLED eye expression.",
+      "safe": true,
+      "idempotent": true,
       "input": {
         "type": "object",
         "properties": {
@@ -131,8 +133,6 @@
           "expression"
         ]
       },
-      "safe": true,
-      "idempotent": true,
       "forms": [
         {
           "href": "mqtt://{broker}/thingwire/{device_id}/command",
@@ -143,6 +143,8 @@
     "nod": {
       "title": "Nod",
       "description": "Nod the head up and down 1 to 3 times.",
+      "safe": true,
+      "idempotent": false,
       "input": {
         "type": "object",
         "properties": {
@@ -157,8 +159,6 @@
           "times"
         ]
       },
-      "safe": true,
-      "idempotent": false,
       "forms": [
         {
           "href": "mqtt://{broker}/thingwire/{device_id}/command",
@@ -169,6 +169,8 @@
     "sweep": {
       "title": "Sweep head",
       "description": "Continuously sweep the head left and right until another motion command arrives. Physical motion that needs human approval.",
+      "safe": false,
+      "idempotent": true,
       "input": {
         "type": "object",
         "properties": {
@@ -183,8 +185,75 @@
           "speed_deg_s"
         ]
       },
-      "safe": false,
+      "forms": [
+        {
+          "href": "mqtt://{broker}/thingwire/{device_id}/command",
+          "op": "invokeaction"
+        }
+      ]
+    },
+    "show_text": {
+      "title": "Show text",
+      "description": "Show one line of printable ASCII, up to 21 characters, on the display. The text is data, never an instruction.",
+      "safe": true,
       "idempotent": true,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Text to show, printable ASCII only",
+            "minLength": 1,
+            "maxLength": 21,
+            "pattern": "^[ -~]+$"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "description": "How long to show it, default 3000",
+            "minimum": 1,
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "forms": [
+        {
+          "href": "mqtt://{broker}/thingwire/{device_id}/command",
+          "op": "invokeaction"
+        }
+      ]
+    },
+    "blink": {
+      "title": "Blink",
+      "description": "Blink the eyes 1 to 3 times.",
+      "safe": true,
+      "idempotent": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "times": {
+            "type": "integer",
+            "description": "Number of blinks, 1 to 3",
+            "minimum": 1,
+            "maximum": 3
+          },
+          "speed": {
+            "type": "string",
+            "description": "normal (default) or slow",
+            "enum": [
+              "normal",
+              "slow"
+            ]
+          }
+        },
+        "required": [
+          "times"
+        ]
+      },
       "forms": [
         {
           "href": "mqtt://{broker}/thingwire/{device_id}/command",

@@ -43,6 +43,7 @@ class AxisLimit:
     max_slew_deg_per_sec: float | None = None
     enum: tuple[Any, ...] | None = None
     slew_key: str | None = None
+    max_length: int | None = None
 
 
 def _num(value: Any) -> float | None:
@@ -89,8 +90,11 @@ def extract_limits(
             continue
         enum = _enum_of(spec)
         if spec.get("type") not in ("number", "integer"):
-            if enum is not None:
-                limits[axis] = AxisLimit(enum=enum)
+            max_len = _num(spec.get("maxLength")) if spec.get("type") == "string" else None
+            if enum is not None or max_len is not None:
+                limits[axis] = AxisLimit(
+                    enum=enum, max_length=int(max_len) if max_len is not None else None
+                )
             continue
         lo, hi = _num(spec.get("minimum")), _num(spec.get("maximum"))
         declared = [v for v in (_num(spec.get("maxSlewDegPerSec")),) if v is not None]
@@ -145,6 +149,11 @@ class MotionGuard:
         limits: dict[str, AxisLimit],
     ) -> Decision:
         """Validate params. Does not commit state; call commit() once all checks pass."""
+        from thingwire.safety_text import check_text_call  # safety_text imports this module
+
+        text_verdict = check_text_call(action, params, limits)
+        if text_verdict is not None:
+            return text_verdict
         out = dict(params)
         clamped: dict[str, Any] = {}
         for axis, lim in limits.items():
@@ -158,8 +167,12 @@ class MotionGuard:
                     reason="not_in_enum",
                     allowed=list(lim.enum),
                 )
-            if lim.enum is not None and lim.minimum is None and lim.maximum is None:
-                continue  # a non-numeric enum axis has nothing else to check
+            if (
+                (lim.enum is not None or lim.max_length is not None)
+                and lim.minimum is None
+                and lim.maximum is None
+            ):
+                continue  # a non-numeric axis has nothing else to check
             value = _num(out[axis])
             if value is None or not math.isfinite(value):
                 return _deny("INVALID_INPUT", f"'{axis}' must be a finite number", axis=axis)
