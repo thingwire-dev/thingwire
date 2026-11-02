@@ -28,3 +28,7 @@ expressions: [neutral, happy, curious, sleepy, surprised, alert]
 
 nod: { min_times: 1, max_times: 3 }
 sweep: { min_speed_deg_s: 10, max_speed_deg_s: 120 }
+
+# SSD1306 128 x 64 with the 6 x 8 font at size 1 gives 21 columns on one line (contracts 2.3).
+display: { text_max_chars: 21, text_default_ms: 3000, text_max_ms: 10000 }
+blink: { max_times: 3 }
