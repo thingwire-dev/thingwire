@@ -4,6 +4,7 @@ Every tool call is recorded with timestamp, device, action, params, and result.
 Uses aiosqlite for async operations. WAL mode for concurrent reads during writes.
 """
 
+import asyncio
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -11,6 +12,7 @@ from typing import Any
 
 import aiosqlite
 
+from thingwire.safety_audit_chain import compute_row_hash
 from thingwire.safety_motion import Decision
 from thingwire.safety_status import SafetyTransition
 
@@ -40,6 +42,8 @@ IDENTITY_COLUMNS = {
     "scopes": "TEXT",
     "decision": "TEXT",
     "reason": "TEXT",
+    "prev_hash": "TEXT",
+    "row_hash": "TEXT",
 }
 
 
@@ -50,6 +54,7 @@ class AuditLog:
         self._db_path = db_path
         self._db: aiosqlite.Connection | None = None
         self._retention_days = retention_days
+        self._write_lock = asyncio.Lock()  # keeps the hash chain linear
 
     async def initialize(self) -> None:
         """Open database, enable WAL mode, create tables, run rotation."""
@@ -119,36 +124,52 @@ class AuditLog:
 
         timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
+        fields = (
+            timestamp,
+            device_id,
+            action,
+            json.dumps(params),
+            json.dumps(result),
+            int(confirmed),
+            source,
+            agent_id,
+            json.dumps(delegation_chain) if delegation_chain is not None else None,
+            json.dumps(scopes) if scopes is not None else None,
+            decision,
+            reason,
+        )
         try:
-            cursor = await self._db.execute(
-                """
-                INSERT INTO commands
-                (timestamp, device_id, action, params_json, result_json, confirmed, source,
-                 agent_id, delegation_chain, scopes, decision, reason)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    timestamp,
-                    device_id,
-                    action,
-                    json.dumps(params),
-                    json.dumps(result),
-                    int(confirmed),
-                    source,
-                    agent_id,
-                    json.dumps(delegation_chain) if delegation_chain is not None else None,
-                    json.dumps(scopes) if scopes is not None else None,
-                    decision,
-                    reason,
-                ),
-            )
-            await self._db.commit()
+            async with self._write_lock:
+                prev = await self._last_row_hash()
+                cursor = await self._db.execute(
+                    """
+                    INSERT INTO commands
+                    (timestamp, device_id, action, params_json, result_json, confirmed, source,
+                     agent_id, delegation_chain, scopes, decision, reason, prev_hash, row_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (*fields, prev, compute_row_hash(prev, fields)),
+                )
+                await self._db.commit()
             row_id = cursor.lastrowid or 0
             logger.debug("Audit log entry #%d: %s/%s", row_id, device_id, action)
             return row_id
         except Exception:
             logger.exception("Failed to write audit log entry for %s/%s", device_id, action)
             return 0
+
+    async def _last_row_hash(self) -> str | None:
+        """row_hash of the newest chained row, None when the chain has not started."""
+        assert self._db is not None
+        cursor = await self._db.execute(
+            "SELECT row_hash FROM commands WHERE row_hash IS NOT NULL ORDER BY id DESC LIMIT 1"
+        )
+        row = await cursor.fetchone()
+        return str(row[0]) if row else None
+
+    async def head_hash(self) -> str | None:
+        """Hash of the newest chained row; save it elsewhere to detect truncation."""
+        return await self._last_row_hash() if self._db else None
 
     async def record_decision(
         self,
