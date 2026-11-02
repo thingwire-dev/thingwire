@@ -506,6 +506,35 @@ the context is the provenance of values the same agent read within the window wh
 reappear in the call's numeric arguments. `require_approval` asks theAuth; `approved` comes only
 from a theAuth approval, never from tool arguments.
 
+### 5.6a Dry run (PLANNED)
+
+Every action tool accepts an optional boolean `dry_run` (default false), next to the freshness
+stamp (5.3). A TD input named `dry_run` keeps its own meaning and the tool then has no dry run
+flag, as for the stamp. With `dry_run: true` the gateway answers whether the call would be
+allowed, and does nothing else:
+
+- No command is published, no approval is requested, no theAuth approval is consumed.
+- No state changes: the nonce is not recorded, motion history and rate limit windows are not
+  advanced, denial counters and the flood guard are not incremented, no e-stop or deadman latch
+  is tripped, the taint ledger is not modified. Calling it any number of times changes nothing.
+- Order of the checks: identity scope (a missing scope is reported, not hidden), taint verdict,
+  then the safety checks in the usual order (e-stop latch, flood, allowlist, deadman, approval
+  need, ranges and slew, rate limits). Freshness is not evaluated because judging a nonce
+  records it; the result says so.
+- Result: `{"status": "dry_run", "would_allow": bool, "needs_approval": bool, "code": "<code>",
+  "message": "<text>", "details": {...}, "value": <validated params or null>,
+  "not_evaluated": ["freshness"]}`. `would_allow` is true only when the real call would reach the
+  device if every required approval were granted. `needs_approval` is true for a dangerous action,
+  or one the taint policy sends to a human; then `code` is the code the real call would return
+  (`APPROVAL_REQUIRED` or `TAINTED_CONTEXT_REQUIRES_APPROVAL`) and `would_allow` is true only when
+  nothing else would deny it. A denial carries its normal code and details.
+- A passed dry run is not a promise. State can change before the real call, which is checked
+  again in full. The same limits and pins apply; a dry run never reveals more than the TD and the
+  caller's scopes already show.
+- Audit: one `commands` row per dry run, `action` the tool name, `decision` `dry_run`, `reason`
+  the code above, `params_json` the input. MCAP records nothing. Rate limiting of dry runs
+  themselves is separate PLANNED work.
+
 ## 6. MCAP recording (`recorder.py`)
 
 Each channel is registered with topic = channel name, message encoding `json`, schema name
