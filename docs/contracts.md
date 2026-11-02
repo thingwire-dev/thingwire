@@ -560,6 +560,29 @@ allowed, and does nothing else:
 - Audit: one `commands` row per dry run, `action` the tool name, `decision` `dry_run`, `reason`
   the code above, `params_json` the input. MCAP records nothing. Rate limiting of dry runs
   themselves is separate PLANNED work.
+### 5.8 Config validation at start (PLANNED)
+
+`safety_config.yaml` is validated when the safety layer is built, and a file that fails makes the
+gateway refuse to start (`ConfigError`, one line per problem, exit status 2 from `thingwire serve`).
+It never falls back to the built in defaults, because defaults can be looser than what the
+operator wrote. A path that does not exist still means the built in defaults, as today.
+
+Fails the start:
+- the file is not valid YAML, or its top level is not a mapping;
+- an unknown key at the top level (known: `devices`, `global`, `taint`, `td_trust`), under
+  `global` (known: `require_confirmation_for_dangerous`, `deadman_switch_timeout_seconds`,
+  `audit_log_retention_days`, `default_rate_limit`, `device_rate_limit`, `out_of_range`,
+  `estop`, `denial_flood`, `command_freshness`) or under a device (known: `allowed_actions`,
+  `dangerous_actions`, `rate_limits`, `device_rate_limit`, `td_unpinned`). A misspelt key would
+  otherwise silently drop the protection it was meant to configure;
+- a wrong type: booleans must be booleans (`"false"` is not `false`), `deadman_switch_timeout_seconds`
+  a positive number, `audit_log_retention_days` a non negative number, `out_of_range` one of
+  `reject` or `clamp`, a rate limit a mapping with `max_calls` a positive integer and
+  `window_seconds` a positive number, action lists lists of strings.
+
+The `taint` and `td_trust` sections keep their own validation (5.4, 5.5) and also refuse to
+start. Unknown keys inside `estop`, `denial_flood`, `command_freshness`, `taint` and `td_trust`
+are checked by their owners, not here.
 
 ## 6. MCAP recording (`recorder.py`)
 
