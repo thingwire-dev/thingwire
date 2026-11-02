@@ -506,7 +506,7 @@ the context is the provenance of values the same agent read within the window wh
 reappear in the call's numeric arguments. `require_approval` asks theAuth; `approved` comes only
 from a theAuth approval, never from tool arguments.
 
-### 5.6a Dry run (PLANNED)
+### 5.7 Dry run (PLANNED)
 
 Every action tool accepts an optional boolean `dry_run` (default false), next to the freshness
 stamp (5.3). A TD input named `dry_run` keeps its own meaning and the tool then has no dry run
