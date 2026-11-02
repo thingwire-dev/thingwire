@@ -1,6 +1,6 @@
 """WoT Thing Description loader and parser.
 
-Pure parsing module — no I/O. Converts raw JSON into typed Pydantic models
+Pure parsing module: no I/O. Converts raw JSON into typed Pydantic models
 for use by the tool compiler and other gateway components.
 """
 
@@ -79,7 +79,7 @@ class SecurityDefinition(BaseModel):
 
 
 class ThingDescription(BaseModel):
-    """W3C WoT Thing Description — the canonical device capability format."""
+    """W3C WoT Thing Description: the canonical device capability format."""
 
     context: str = Field(alias="@context")
     type: str = Field(alias="@type")

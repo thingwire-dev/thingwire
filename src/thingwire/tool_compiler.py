@@ -1,4 +1,4 @@
-"""Tool compiler — transforms WoT Thing Description into MCP tool definitions.
+"""Tool compiler: transforms WoT Thing Description into MCP tool definitions.
 
 This is the core differentiator. Pure transformation, no I/O.
 Takes a parsed ThingDescription and produces CompiledTool definitions
@@ -15,7 +15,7 @@ from thingwire.td_loader import ThingAction, ThingDescription, ThingProperty
 
 logger = logging.getLogger(__name__)
 
-DANGEROUS_PREFIX = "⚠️ PHYSICAL ACTION — "
+DANGEROUS_PREFIX = "⚠️ PHYSICAL ACTION: "
 
 
 class ToolParameter(BaseModel):

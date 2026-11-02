@@ -128,7 +128,7 @@ void tick() {
         return;
     }
 
-    // Not connected — blink LED
+    // Not connected: blink LED
     _connected = false;
     unsigned long now = millis();
     if (now - _lastLedToggleMs >= LED_BLINK_INTERVAL_MS) {

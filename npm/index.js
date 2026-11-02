@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * ThingWire MCP Server — npm wrapper for the Python package.
+ * ThingWire MCP Server: npm wrapper for the Python package.
  *
  * This spawns `thingwire serve` which runs the Python MCP server
  * over stdio. Install the Python package first: pip install thingwire

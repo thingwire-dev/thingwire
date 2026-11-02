@@ -1,4 +1,4 @@
-"""Tests for hardened behavior — edge cases, state management, resilience."""
+"""Tests for hardened behavior: edge cases, state management, resilience."""
 
 import time
 

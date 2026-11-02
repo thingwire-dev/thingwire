@@ -2,10 +2,10 @@
 #define WIFI_MANAGER_H
 
 namespace WiFiManager {
-    /// Initialize WiFi — tries saved creds, falls back to AP mode
+    /// Initialize WiFi: tries saved creds, falls back to AP mode
     void init();
 
-    /// Call in loop() — handles AP mode web server + reconnect logic (non-blocking)
+    /// Call in loop(): handles AP mode web server + reconnect logic (non-blocking)
     void tick();
 
     /// True when connected to WiFi station

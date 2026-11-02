@@ -1,4 +1,4 @@
-"""Safety layer — permission checks, rate limiting, confirmation, deadman switch.
+"""Safety layer: permission checks, rate limiting, confirmation, deadman switch.
 
 Stateless checks with injectable rate limiter state. All actuator commands
 MUST pass through this module before reaching the MQTT bridge.
@@ -195,7 +195,7 @@ class SafetyLayer:
         last = self._last_heartbeat.get(device_id)
 
         if last is None:
-            return  # No heartbeat tracking yet — allow first command
+            return  # No heartbeat tracking yet: allow first command
 
         elapsed = self._clock() - last
         if elapsed > timeout:

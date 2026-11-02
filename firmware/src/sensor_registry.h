@@ -5,7 +5,7 @@ namespace SensorRegistry {
     /// Initialize DHT22 and PIR sensors
     void init();
 
-    /// Call in loop() — reads sensors on schedule (non-blocking)
+    /// Call in loop(): reads sensors on schedule (non-blocking)
     void tick();
 
     /// Latest temperature in Celsius (NaN if not yet read)

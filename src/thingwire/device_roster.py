@@ -1,4 +1,4 @@
-"""Device roster — persist discovered device TDs to disk.
+"""Device roster: persist discovered device TDs to disk.
 
 Saves Thing Descriptions to a JSON file so the gateway can restore
 known devices on restart without waiting for re-discovery.

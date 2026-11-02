@@ -61,18 +61,18 @@ The **tool compiler** reads your TD and generates MCP tools:
 
 Each property becomes a `read_*` tool. Include:
 
-- `type` — `"number"`, `"boolean"`, `"string"`
-- `unit` — helps the AI understand the reading (e.g., `"celsius"`, `"percent"`)
-- `readOnly` — should be `true` for sensors
-- `description` — clear, concise description (the AI reads this)
+- `type`: `"number"`, `"boolean"`, `"string"`
+- `unit`: helps the AI understand the reading (e.g., `"celsius"`, `"percent"`)
+- `readOnly`: should be `true` for sensors
+- `description`: clear, concise description (the AI reads this)
 
 ## Actions (actuators)
 
 Each action becomes a `do_*` tool. Important fields:
 
-- `safe` — set to `false` for actions that affect the physical world (motors, relays, locks). This triggers the safety layer's confirmation requirement.
-- `idempotent` — set to `true` if calling the action twice has the same effect as once
-- `input.properties` — define the parameters the AI can pass
+- `safe`: set to `false` for actions that affect the physical world (motors, relays, locks). This triggers the safety layer's confirmation requirement.
+- `idempotent`: set to `true` if calling the action twice has the same effect as once
+- `input.properties`: define the parameters the AI can pass
 
 ## Publishing the TD
 
@@ -88,7 +88,7 @@ The gateway subscribes to `thingwire/+/td` and automatically discovers new devic
 
 ## Tips
 
-- Keep descriptions short and clear — the AI uses them to understand what tools do
+- Keep descriptions short and clear: the AI uses them to understand what tools do
 - Mark any action that touches the physical world as `safe: false`
 - Use standard units (celsius, percent, boolean) for consistency
 - The `id` field should be a URN: `urn:thingwire:device:{your-device-id}`

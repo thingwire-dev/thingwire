@@ -70,7 +70,7 @@ async def run_demo() -> None:
     # Agent reasoning
     if temp > TEMPERATURE_THRESHOLD:
         logger.info(
-            "Temperature %.1f°C exceeds threshold %.1f°C — turning ON relay (fan)",
+            "Temperature %.1f°C exceeds threshold %.1f°C: turning ON relay (fan)",
             temp,
             TEMPERATURE_THRESHOLD,
         )
@@ -89,7 +89,7 @@ async def run_demo() -> None:
         await audit.record(device_id, "do_setRelay", {"state": True}, {"action_id": action_id})
     else:
         logger.info(
-            "Temperature %.1f°C is below threshold %.1f°C — relay stays OFF",
+            "Temperature %.1f°C is below threshold %.1f°C: relay stays OFF",
             temp,
             TEMPERATURE_THRESHOLD,
         )
