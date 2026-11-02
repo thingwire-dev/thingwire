@@ -21,6 +21,7 @@ thingwire-dev/thingwire. Last full refresh: 2026-10-18.
 | Integration: wire provenance, e-stop, identity into the gateway; gateway MQTT credentials for ACL broker | review | `feat/integration-gateway` | see PR | `mcp_server.py`, `cli.py`, `audit_log.py` (shared) |
 | W6 injection benchmark | merged (main) | `feat/w6-injection-benchmark` | #18 | `examples/injection-demo/`, `tests/test_injection*.py` |
 | Injection hardening (enum, slew, device rate, freshness, TD pins, taint matching) and hardened benchmark arm | review | `hotfix/injection-hardening` | | `src/thingwire/safety*.py`, `mcp_server.py`, `docs/`, `examples/injection-demo/` (shared: needs label) |
+| Contract: desk bot `show_text` and `blink` actions | review | `docs/contracts-desk-bot-text-actions` | see PR | `docs/contracts.md` |
 | Ruff and mypy --strict cleanup | queued | unassigned (Haiku, mechanical) | | files not yet in `.agents/strict-files.txt`; add each file to the list when clean |
 | Dash cleanup of legacy files | queued | unassigned (Haiku, mechanical) | | files in `.agents/dash-allowlist.txt`; remove an entry when its file is clean |
 | First release PR `release/robot-stack-v0` to main | queued | owner | | see `RELEASE.md` |
