@@ -104,33 +104,57 @@ def _build_action_signature(params: list[ToolParameter]) -> inspect.Signature:
     return inspect.Signature(sig_params, return_annotation=dict[str, Any])
 
 
+# Optional freshness stamp every action tool accepts (contracts 5.3). A TD input with the same
+# name keeps its meaning and is not treated as a stamp.
+_STAMP_PARAMS = (
+    ToolParameter(
+        name="issued_at",
+        type="number",
+        description="Optional: when this command was issued, seconds since the Unix epoch (UTC)",
+        required=False,
+    ),
+    ToolParameter(
+        name="nonce",
+        type="string",
+        description="Optional: unique 8-128 character id (A-Z a-z 0-9 _ -), never reused",
+        required=False,
+    ),
+)
+
+
 def _register_action_tool(
     mcp: FastMCP, tool: CompiledTool, route: CommandRoute, pipeline: ActionPipeline
 ) -> None:
     """Register an action tool (actuator command) on the MCP server."""
+    taken = {p.name for p in tool.parameters}
+    stamps = [p for p in _STAMP_PARAMS if p.name not in taken]
+    all_params = [*tool.parameters, *stamps]
 
     async def _execute(params: dict[str, Any]) -> dict[str, Any]:
-        return await pipeline.execute(tool, route, params, current_identity(), _gate(mcp))
+        stamp = {p.name: params.pop(p.name, None) for p in stamps}
+        return await pipeline.execute(
+            tool,
+            route,
+            params,
+            current_identity(),
+            _gate(mcp),
+            issued_at=stamp.get("issued_at"),
+            nonce=stamp.get("nonce"),
+        )
 
     # Build a wrapper with explicit parameter signature for FastMCP.
     # FastMCP inspects __signature__ AND __annotations__ via get_type_hints().
-    if tool.parameters:
-        sig = _build_action_signature(tool.parameters)
-        annotations: dict[str, Any] = {p.name: _TYPE_MAP.get(p.type, str) for p in tool.parameters}
-        annotations["return"] = dict[str, Any]
+    sig = _build_action_signature(all_params)
+    annotations: dict[str, Any] = {p.name: _TYPE_MAP.get(p.type, str) for p in all_params}
+    annotations["return"] = dict[str, Any]
 
-        async def action_handler(*args: Any, **kwargs: Any) -> dict[str, Any]:
-            bound = sig.bind(*args, **kwargs)
-            bound.apply_defaults()
-            return await _execute(dict(bound.arguments))
+    async def action_handler(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        bound = sig.bind(*args, **kwargs)
+        bound.apply_defaults()
+        return await _execute(dict(bound.arguments))
 
-        action_handler.__signature__ = sig  # type: ignore[attr-defined]
-        action_handler.__annotations__ = annotations
-    else:
-
-        async def action_handler() -> dict[str, Any]:  # type: ignore[misc]
-            return await _execute({})
-
+    action_handler.__signature__ = sig  # type: ignore[attr-defined]
+    action_handler.__annotations__ = annotations
     mcp.tool(name=tool.name, description=tool.description)(action_handler)
 
 

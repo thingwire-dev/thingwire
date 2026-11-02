@@ -3,6 +3,7 @@
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -25,28 +26,59 @@ class RateLimitWindow:
         self.timestamps.append(self.clock())
 
 
+def resolve_limits(
+    config: dict[str, Any], device_id: str, action: str
+) -> tuple[dict[str, float] | None, dict[str, float] | None]:
+    """(per action, per device) rate configs; the device window defaults to the action default."""
+    device_cfg = config.get("devices", {}).get(device_id, {})
+    glob = config.get("global", {})
+    default = glob.get("default_rate_limit")
+    per_action = device_cfg.get("rate_limits", {}).get(action) or default
+    per_device = device_cfg.get("device_rate_limit") or glob.get("device_rate_limit") or default
+    return per_action, per_device
+
+
 class RateLimiterBook:
-    """Per-device, per-action rate limiters."""
+    """Per-action windows plus one per-device window across every action (contracts 5.2)."""
 
     def __init__(self, clock: Callable[[], float]) -> None:
         self._clock = clock
         self.limiters: dict[str, dict[str, RateLimitWindow]] = {}
+        self.device_limiters: dict[str, RateLimitWindow] = {}
 
-    def check_and_record(
-        self, device_id: str, action: str, cfg: dict[str, float]
-    ) -> RateLimitWindow | None:
-        """Record a call. Returns the limiter if the limit was exceeded, else None."""
-        per_device = self.limiters.setdefault(device_id, {})
-        if action not in per_device:
-            per_device[action] = RateLimitWindow(
-                max_calls=int(cfg["max_calls"]),
-                window_seconds=cfg["window_seconds"],
-                clock=self._clock,
-            )
-        limiter = per_device[action]
-        if not limiter.check():
-            return limiter
-        limiter.record()
+    def _window(self, cfg: dict[str, float]) -> RateLimitWindow:
+        return RateLimitWindow(
+            max_calls=int(cfg["max_calls"]),
+            window_seconds=float(cfg["window_seconds"]),
+            clock=self._clock,
+        )
+
+    def admit(
+        self,
+        device_id: str,
+        action: str,
+        action_cfg: dict[str, float] | None,
+        device_cfg: dict[str, float] | None,
+    ) -> tuple[str, RateLimitWindow] | None:
+        """Record a call in every applicable window, or in none.
+
+        Returns (scope, limiter) for the first window that is full, else None.
+        """
+        windows: list[tuple[str, RateLimitWindow]] = []
+        if device_cfg:
+            if device_id not in self.device_limiters:
+                self.device_limiters[device_id] = self._window(device_cfg)
+            windows.append(("device", self.device_limiters[device_id]))
+        if action_cfg:
+            per_device = self.limiters.setdefault(device_id, {})
+            if action not in per_device:
+                per_device[action] = self._window(action_cfg)
+            windows.append(("action", per_device[action]))
+        for scope, limiter in windows:
+            if not limiter.check():
+                return scope, limiter
+        for _, limiter in windows:
+            limiter.record()
         return None
 
     def prune(self) -> int:
@@ -64,4 +96,10 @@ class RateLimiterBook:
                     pruned += 1
             if not self.limiters[device_id]:
                 del self.limiters[device_id]
+        for device_id in list(self.device_limiters):
+            window = self.device_limiters[device_id]
+            window.timestamps = [t for t in window.timestamps if now - t < window.window_seconds]
+            if not window.timestamps:
+                del self.device_limiters[device_id]
+                pruned += 1
         return pruned

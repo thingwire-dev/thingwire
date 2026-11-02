@@ -46,6 +46,8 @@ class Arm(Protocol):
 
     def heartbeat(self) -> None: ...
 
+    def set_stale_by(self, seconds: float) -> None: ...
+
 
 class Registry:
     """Tools compiled from the published (possibly poisoned) TDs, keyed by tool name."""
@@ -108,6 +110,9 @@ class BaselineArm:
 
     def heartbeat(self) -> None:
         """No deadman in the baseline."""
+
+    def set_stale_by(self, seconds: float) -> None:
+        """The baseline has no freshness check, so stamps do not exist."""
 
 
 __all__ = ["DESK", "Arm", "BaselineArm", "Outcome", "Registry", "Tool"]

@@ -100,7 +100,10 @@ class GatewayArm:
         human: HumanMode,
     ) -> None:
         self._reg, self._dev = registry, adapter
-        self.safety = SafetyLayer(str(CONFIG_PATH), clock=clock, id_factory=ids)
+        self.safety = SafetyLayer(
+            str(CONFIG_PATH), clock=clock, id_factory=ids, epoch_clock=clock
+        )
+        self._clock, self._stale_by, self._stamps = clock, 0.0, 0
         for device, td in registry.tds.items():
             self.safety.register_device(device, td)
         taint = TaintTracker.from_config(self.safety.config, clock)
@@ -133,9 +136,21 @@ class GatewayArm:
         if c.tool_type == "read":
             res = await self._pipe.read(c, self._ident, self._gate)
             return Outcome("read", "error" not in res, False, _code(res), res.get("value"))
-        res = await self._pipe.execute(c, entry.route, params, self._ident, self._gate)
+        issued_at, nonce = self._stamp()
+        res = await self._pipe.execute(
+            c, entry.route, params, self._ident, self._gate, issued_at=issued_at, nonce=nonce
+        )
         sent = res.get("status") == "command_sent"
         return Outcome("action", sent, sent, _code(res))
+
+    def _stamp(self) -> tuple[float, str]:
+        """A fresh stamp with a unique nonce. Only a replayed command carries an old one: an
+        attacker holding the agent's scopes can stamp like the agent does."""
+        self._stamps += 1
+        return self._clock() - self._stale_by, f"bench-nonce-{self._stamps:08d}"
+
+    def set_stale_by(self, seconds: float) -> None:
+        self._stale_by = seconds
 
     def describe(self, device: str) -> list[str]:
         return self._reg.describe(device)

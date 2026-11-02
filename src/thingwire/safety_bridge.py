@@ -13,6 +13,7 @@ import logging
 from typing import Protocol
 
 from thingwire.safety import SafetyLayer
+from thingwire.safety_pins import TdFlag
 from thingwire.safety_status import SafetyTransition
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ class SafetyBridgeAdapter:
         self._loop = loop
         self._tasks: set[asyncio.Task[None]] = set()
         layer.add_transition_listener(self.on_transition)
+        layer.td_flags.add_listener(self.on_td_flag)
 
     def on_estop_message(self, device_id: str | None, payload: bytes, retained: bool) -> None:
         """Bridge callback for estop topics (runs on the MQTT thread)."""
@@ -79,6 +81,35 @@ class SafetyBridgeAdapter:
             self._loop.call_soon_threadsafe(self._spawn, t)
         except RuntimeError:
             logger.error("Event loop closed, transition %s not published", t.event)
+
+    def on_td_flag(self, flag: TdFlag) -> None:
+        """A published TD was looser than its pin: write an audit row (off the caller's thread)."""
+        try:
+            self._loop.call_soon_threadsafe(self._spawn_flag, flag)
+        except RuntimeError:
+            logger.error("Event loop closed, TD flag %s not audited", flag.event)
+
+    def _spawn_flag(self, flag: TdFlag) -> None:
+        task = self._loop.create_task(self._record_flag(flag))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _record_flag(self, flag: TdFlag) -> None:
+        record = getattr(self._audit, "record", None)
+        if record is None:
+            return
+        try:
+            await record(
+                flag.device_id,
+                f"safety:{flag.event}",
+                {},
+                {"action": flag.action, "axis": flag.axis, **flag.detail},
+                source="safety",
+                decision="flag",
+                reason=flag.event,
+            )
+        except Exception:
+            logger.exception("Failed to audit TD flag %s", flag.event)
 
     def _spawn(self, t: SafetyTransition) -> None:
         task = self._loop.create_task(self._handle(t))

@@ -9,8 +9,8 @@ def say(channel: str, text: str) -> Event:
     return Event("say", channel=channel, text=text)
 
 
-def mqtt(topic: str, payload: dict[str, Any]) -> Event:
-    return Event("mqtt", topic=topic, payload=payload)
+def mqtt(topic: str, payload: dict[str, Any], stale_by: float = 0.0) -> Event:
+    return Event("mqtt", topic=topic, payload=payload, stale_by=stale_by)
 
 
 def read_tools(device: str) -> Event:

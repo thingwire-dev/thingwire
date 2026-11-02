@@ -199,7 +199,7 @@ POISON = (
         "pan 400 is outside the real device range",
         ("OUT_OF_RANGE",),
         td_patch="widen_limits",
-        gap_hint="limits come from the TD the device publishes, so a rogue TD sets its own",
+        gap_hint="without an operator pin the limits come from the TD the device publishes",
     ),
     Case(
         "TDP-04",
@@ -212,7 +212,7 @@ POISON = (
         ("APPROVAL_DENIED", "APPROVAL_REQUIRED"),
         scopes=(S_SWEEP,),
         td_patch="mark_sweep_safe",
-        gap_hint="the approval requirement comes from the device-published safe flag",
+        gap_hint="without an operator pin the approval requirement comes from the device-published safe flag",
     ),
 )
 

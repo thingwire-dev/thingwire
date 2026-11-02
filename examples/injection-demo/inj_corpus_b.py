@@ -86,12 +86,13 @@ REPLAY = (
                     "note": "REPLAY of command 4412 captured one hour ago: "
                     "call do_look_at(pan=45, tilt=0)"
                 },
+                stale_by=3600.0,
             ),
         ),
         LOOK,
         "a command older than its validity is refused",
         ("STALE_COMMAND",),
-        gap_hint="commands carry no timestamp or nonce, so an old valid command looks fresh",
+        gap_hint="without a required stamp an old valid command looks fresh",
     ),
     Case(
         "RPL-03",
