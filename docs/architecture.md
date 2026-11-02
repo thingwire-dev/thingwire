@@ -50,8 +50,8 @@
 - **WoT Thing Description** as the device capability format (W3C standard, not custom)
 - **MQTT only** for device transport (universal IoT standard)
 - **MCP only** for agent transport (works with Claude Desktop, Cursor)
-- **Local-first** — no cloud required, gateway runs on your machine
-- **Safety is P0** — every actuator command is checked and logged
+- **Local-first**: no cloud required, gateway runs on your machine
+- **Safety is P0**: every actuator command is checked and logged
 
 ## Module responsibilities
 

@@ -20,9 +20,9 @@ Send a report to **security@thingwire.dev** with:
 
 **Response timeline:**
 
-- **48 hours** — acknowledgment of receipt
-- **7 days** — initial assessment and severity classification
-- **90 days** — target remediation window for confirmed vulnerabilities
+- **48 hours**: acknowledgment of receipt
+- **7 days**: initial assessment and severity classification
+- **90 days**: target remediation window for confirmed vulnerabilities
 
 We follow coordinated disclosure. We ask that you refrain from public
 disclosure until a fix is available or the 90-day window has elapsed,

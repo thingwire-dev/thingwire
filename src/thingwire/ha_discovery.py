@@ -1,4 +1,4 @@
-"""Home Assistant MQTT Discovery — publish HA-compatible discovery messages.
+"""Home Assistant MQTT Discovery: publish HA-compatible discovery messages.
 
 When enabled, ThingWire publishes HA MQTT discovery config for each device
 property and action, making ThingWire devices show up automatically in

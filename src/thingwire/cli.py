@@ -1,4 +1,4 @@
-"""ThingWire CLI — serve, init, and device management."""
+"""ThingWire CLI: serve, init, and device management."""
 
 import logging
 import os
@@ -51,7 +51,7 @@ global:
 @click.group()
 @click.version_option(version=__version__, prog_name="thingwire")
 def main() -> None:
-    """ThingWire — AI-to-hardware gateway. WoT TD to MCP tools."""
+    """ThingWire: AI-to-hardware gateway. WoT TD to MCP tools."""
 
 
 @main.command()
@@ -356,7 +356,7 @@ def sim(device_id: str, broker: str, port: int) -> None:
     try:
         client.connect(broker, port)
     except OSError as e:
-        click.echo(f"Error: cannot connect to {broker}:{port} — {e}", err=True)
+        click.echo(f"Error: cannot connect to {broker}:{port}: {e}", err=True)
         sys.exit(1)
 
     client.loop_start()

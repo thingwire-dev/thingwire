@@ -12,7 +12,7 @@
     "motion": {
       "type": "boolean",
       "readOnly": true,
-      "description": "PIR motion sensor — true when motion detected",
+      "description": "PIR motion sensor: true when motion detected",
       "forms": [{ "href": "mqtt://localhost/thingwire/thingwire-demo-001/telemetry", "op": "observeproperty" }]
     }
   },

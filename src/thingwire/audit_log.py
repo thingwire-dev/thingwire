@@ -1,4 +1,4 @@
-"""Audit log — SQLite-based command audit trail.
+"""Audit log: SQLite-based command audit trail.
 
 Every tool call is recorded with timestamp, device, action, params, and result.
 Uses aiosqlite for async operations. WAL mode for concurrent reads during writes.

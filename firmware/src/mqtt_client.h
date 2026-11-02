@@ -10,7 +10,7 @@ namespace MqttClient {
     /// Initialize MQTT client with broker from WiFiManager
     void init(CommandCallback onCommand);
 
-    /// Call in loop() — handles reconnect + publish queue (non-blocking)
+    /// Call in loop(): handles reconnect + publish queue (non-blocking)
     void tick();
 
     /// True when connected to MQTT broker

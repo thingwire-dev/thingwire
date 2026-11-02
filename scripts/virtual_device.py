@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ThingWire Virtual Device Simulator.
 
-Simulates an ESP32-S3 device on MQTT — publishes WoT TD, telemetry,
+Simulates an ESP32-S3 device on MQTT: publishes WoT TD, telemetry,
 and responds to commands. Unblocks gateway development without hardware.
 """
 

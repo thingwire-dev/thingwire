@@ -12,7 +12,7 @@ from thingwire.td_loader import (
 
 
 def test_parse_valid_td(sample_td_json: str) -> None:
-    """Parse the spec TD — should get 3 properties and 1 action."""
+    """Parse the spec TD: should get 3 properties and 1 action."""
     td = parse_thing_description(sample_td_json)
 
     assert isinstance(td, ThingDescription)

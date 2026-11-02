@@ -70,7 +70,7 @@ One subject line. No trailing period. Keep it under 72 characters.
 ## Pull Requests
 
 - Open against `main`.
-- Keep PRs focused — one feature or fix per PR.
+- Keep PRs focused: one feature or fix per PR.
 - All tests must pass and lint must be clean before requesting review.
 - New actuator support requires a safety layer test demonstrating rejection
   of out-of-range commands.

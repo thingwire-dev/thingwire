@@ -1,4 +1,4 @@
-"""Integration tests — full component wiring without external broker.
+"""Integration tests: full component wiring without external broker.
 
 Tests the pipeline: TD JSON → td_loader → tool_compiler → safety → audit_log
 and MQTT bridge message handling, all wired through mcp_server registration.
@@ -51,7 +51,7 @@ SPEC_TD = {
         "motion": {
             "type": "boolean",
             "readOnly": True,
-            "description": "PIR motion sensor — true when motion detected",
+            "description": "PIR motion sensor: true when motion detected",
             "forms": [
                 {
                     "href": "mqtt://broker/thingwire/thingwire-demo-001/telemetry",

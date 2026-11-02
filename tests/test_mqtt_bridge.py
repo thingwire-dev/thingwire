@@ -1,4 +1,4 @@
-"""Tests for MQTT bridge — unit tests with mocked MQTT client."""
+"""Tests for MQTT bridge: unit tests with mocked MQTT client."""
 
 import json
 from unittest.mock import MagicMock
